@@ -1,27 +1,43 @@
 <!-- 🌀 Animated Intro -->
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=00FFFF&center=true&vCenter=true&width=850&lines=Momentum+Live+Stock+Tracker+📊;Real-Time+Global+Stock+and+Index+Analysis;Built+with+Python,+Streamlit,+Plotly,+and+yFinance" alt="Typing SVG Animation" />
+  <img 
+    src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=600&size=22&pause=1000&color=00FFFF&center=true&vCenter=true&width=850&lines=Momentum+Live+Stock+Tracker+📊;Real-Time+Global+Stock+and+Index+Analysis;Built+with+Python,+Streamlit,+Plotly,+and+yFinance" 
+    alt="Typing SVG Animation"
+  />
 </p>
 
+<!-- 🌈 Divider Line -->
 <p align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" alt="Rainbow Divider" />
+  <img 
+    src="https://capsule-render.vercel.app/api?type=rect&color=00FFFF&height=2" 
+    width="100%" 
+    alt="Divider Line"
+  />
 </p>
 
+<!-- 🚀 Title -->
 <h1 align="center">🚀 Momentum Live Global Stock Tracker</h1>
 
+<!-- 💡 Tagline -->
 <p align="center">
   <em>📈 Real-Time Market Data · 🌎 Global Perspective · 💡 Interactive Insights</em>
 </p>
 
+<!-- 🧩 Tech Badges -->
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python" alt="Python Version" />
-  <img src="https://img.shields.io/badge/Streamlit-1.30%2B-ff4b4b?style=for-the-badge&logo=streamlit" alt="Streamlit Badge" />
-  <img src="https://img.shields.io/badge/Plotly-Interactive%20Charts-0080ff?style=for-the-badge&logo=plotly" alt="Plotly Badge" />
-  <img src="https://img.shields.io/badge/yFinance-Data%20API-2e7d32?style=for-the-badge&logo=yahoo" alt="yFinance Badge" />
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python" alt="Python Version Badge" />
+  <img src="https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?style=for-the-badge&logo=streamlit" alt="Streamlit Badge" />
+  <img src="https://img.shields.io/badge/Plotly-Interactive%20Charts-0080FF?style=for-the-badge&logo=plotly" alt="Plotly Badge" />
+  <img src="https://img.shields.io/badge/yFinance-Data%20API-2E7D32?style=for-the-badge&logo=yahoo" alt="yFinance Badge" />
 </p>
 
+<!-- 🌈 Divider Line -->
 <p align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" alt="Rainbow Divider" />
+  <img 
+    src="https://capsule-render.vercel.app/api?type=rect&color=00FFFF&height=2" 
+    width="100%" 
+    alt="Divider Line"
+  />
 </p>
 
 ---
@@ -34,6 +50,7 @@ Powered by **Python**, **Streamlit**, **Plotly**, and **yFinance**, it provides 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Arya-9989/Momentum-Live-Stock-Tracker/main/Momentum_Live.png" alt="Momentum Live Screenshot" width="80%">
 </p>
+
 
 ---
 
