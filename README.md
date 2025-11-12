@@ -46,6 +46,7 @@
 
 **Momentum Live Stock Tracker** is a real-time dashboard that transforms complex global financial data into a clean, interactive, single-screen experience.  
 Powered by **Python**, **Streamlit**, **Plotly**, and **yFinance**, it provides instant access to global market snapshots, stock analytics, and live performance charts.
+**This project is deployed and tested on AWS EC2 with S3 integration and IAM-based access control.**
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Arya-9989/Momentum-Live-Stock-Tracker/main/Momentum_Live.png" alt="Momentum Live Screenshot" width="80%">
