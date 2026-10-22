@@ -124,13 +124,26 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   const theme = payload.theme;
   const root = el("figure", "mm-chart");
   root.setAttribute("aria-label", payload.alt);
-  root.style.height = `${payload.height}px`;
+  // Structural styles are inline: the stylesheet is a separate file that can arrive
+  // after the first paint, and a <figure>'s default 1em margin would collapse
+  // through the shadow host and push the whole chart down until it did.
+  Object.assign(root.style, {
+    margin: "0", padding: "0", position: "relative", width: "100%", overflow: "hidden",
+    height: `${payload.height}px`,
+  });
   const plot = el("div", "mm-chart-plot");
+  Object.assign(plot.style, { position: "absolute", inset: "0" });
   plot.setAttribute("aria-hidden", "true"); // the figure's label and the price table carry it
   const curtain = el("div", "mm-chart-curtain");
+  Object.assign(curtain.style, { position: "absolute", top: "0", left: "0", visibility: "hidden" });
   curtain.style.background = theme.surface;
   const readout = el("div", "mm-chart-readout");
   readout.setAttribute("aria-hidden", "true");
+  Object.assign(readout.style, {
+    position: "absolute", top: "4px", left: "0", maxWidth: "70%", zIndex: "3",
+    display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "12px",
+    rowGap: "2px", pointerEvents: "none",
+  });
   const pick = el("button", "mm-chart-pick");
   pick.type = "button";
   pick.hidden = true;
@@ -138,7 +151,10 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   host.appendChild(root);
 
   const chart = createChart(plot, {
-    autoSize: true,
+    // Created at its final size: autoSize measures asynchronously, so the first
+    // frame would be laid out at a default width and the price axis would jump.
+    width: Math.max(root.clientWidth, 1),
+    height: payload.height,
     layout: {
       background: { type: ColorType.Solid, color: "transparent" },
       textColor: theme.secondary,
@@ -148,7 +164,8 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
       panes: { separatorColor: theme.grid, separatorHoverColor: theme.axis, enableResize: false },
     },
     grid: { vertLines: { visible: false }, horzLines: { color: theme.grid } },
-    rightPriceScale: { borderVisible: false, alignLabels: true },
+    // A minimum width absorbs the labels growing when the web font arrives.
+    rightPriceScale: { borderVisible: false, alignLabels: true, minimumWidth: 80 },
     timeScale: {
       borderVisible: false,
       timeVisible: payload.intraday,
@@ -232,6 +249,7 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   }
   const labels = payload.panes.map((pane) => {
     const label = el("div", "mm-chart-pane-label");
+    Object.assign(label.style, { position: "absolute", top: "0", left: "0", zIndex: "3" });
     label.textContent = pane.label;
     label.style.color = theme.secondary;
     label.hidden = !pane.label;
@@ -243,7 +261,7 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
     root, plot, curtain, readout, pick, labels, chart, entries, price,
     reference: null, picked: null, pickedPrice: null,
     structure: structureOf(payload), key: "", payload,
-    observer: new ResizeObserver(() => layout(state)), send,
+    observer: new ResizeObserver(() => resize(state)), send,
   };
 
   // Bands draw behind the series they belong to.
@@ -313,6 +331,12 @@ function update(state: State, payload: Payload): void {
     sweep(state);
   }
   requestAnimationFrame(() => layout(state));
+}
+
+function resize(state: State): void {
+  const width = state.root.clientWidth;
+  if (width > 0) state.chart.resize(width, state.payload.height);
+  layout(state);
 }
 
 /** Pane labels sit in each pane's corner; the curtain covers the plot area only. */

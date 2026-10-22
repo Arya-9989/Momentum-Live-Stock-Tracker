@@ -16,6 +16,8 @@
   position: absolute; top: 0; left: 0; z-index: 2;
   pointer-events: none; transform-origin: 100% 50%; transform: scaleX(0); visibility: hidden;
 }
+/* Inline styles hide the curtain until this file loads; the class wins once it has. */
+.mm-chart-curtain.mm-sweeping { visibility: visible !important; }
 @media (prefers-reduced-motion: no-preference) {
   .mm-chart-curtain.mm-sweeping {
     visibility: visible;
