@@ -1,0 +1,55 @@
+/*
+ * Styles for the Alerts, Portfolio and Fundamentals views. Tokens (--mm-*) come
+ * from styles.css. Same rules as there: paint only for anything above the fold,
+ * no less-than sign followed by a letter (DOMPurify), tabular figures for numbers.
+ */
+
+/* ---------------------------------------------------------------- shared */
+.mm-fsection { display: flex; align-items: baseline; gap: 0.75rem; margin: 2.75rem 0 0.5rem; }
+[data-testid="stApp"] .mm-fsection h2 {
+  margin: 0; padding: 0; color: var(--mm-ink); font-weight: 600;
+  font-size: 21px; line-height: 25px; letter-spacing: -0.01em;
+}
+.mm-fsub { margin: 0; font-size: 15px; line-height: 20px; color: var(--mm-secondary); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- alerts */
+.mm-alert { min-width: 0; flex: 1 1 auto; padding: 10px 0; }
+.mm-alert p { margin: 0; }
+.mm-alert-title { font-size: 17px; line-height: 22px; color: var(--mm-ink); font-weight: 500; }
+.mm-alert-title .mm-sym { font-weight: 600; margin-right: 0.35rem; }
+.mm-alert-meta {
+  margin-top: 2px !important; font-size: 13px; line-height: 18px; color: var(--mm-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.mm-tag {
+  display: inline-block; margin-left: 0.4rem; padding: 0 8px; border-radius: 980px;
+  background: var(--mm-fill); color: var(--mm-secondary-strong); font-size: 12px; line-height: 20px;
+  font-weight: 500; vertical-align: 2px;
+}
+[class*="st-key-alert_row_"] { border-bottom: 1px solid var(--mm-hairline); }
+
+.mm-events { list-style: none; margin: 0; padding: 0; }
+.mm-event {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  padding: 11px 0; border-bottom: 1px solid var(--mm-hairline);
+  font-size: 15px; line-height: 20px; color: var(--mm-secondary);
+}
+.mm-event[data-unread="true"] { color: var(--mm-ink); font-weight: 500; }
+.mm-event[data-unread="true"] span::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px;
+  border-radius: 50%; background: var(--mm-focus); vertical-align: 1px;
+}
+.mm-event time {
+  flex: none; font-size: 13px; color: var(--mm-secondary); font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Beside a 68px label-and-field: centred on the 40px field below the label. */
+.mm-hint { margin: 0; padding-top: 38px; font-size: 14px; line-height: 20px; color: var(--mm-secondary); }
+
+@media (max-width: 640px) {
+  .mm-event { flex-direction: column; gap: 2px; }
+}
+
+/* Row actions never shrink into an ellipsis ("Del..."). */
+[class*="st-key-alert_delete_"] { flex: none; }

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     # Imported when a store is opened, not with the package: the repositories
     # use momentum.data, whose Streamlit caches must not be created before the
     # Streamlit runtime exists (serve.py imports momentum.identity first).
+    from momentum.store.alerts import SqlAlertRepository
     from momentum.store.watchlists import SqlWatchlistRepository
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ __all__ = [
 class Store:
     db: Database
     watchlists: SqlWatchlistRepository
+    alerts: SqlAlertRepository
 
     def close(self) -> None:
         self.db.close()
@@ -45,6 +47,7 @@ class Store:
 
 def open_store(url: str) -> Store:
     """Open the database at ``url`` and bring its schema up to date."""
+    from momentum.store.alerts import SqlAlertRepository
     from momentum.store.watchlists import SqlWatchlistRepository
 
     db = open_database(url)
@@ -55,7 +58,7 @@ def open_store(url: str) -> Store:
         raise
     if applied:
         logger.info("Applied migrations: %s", ", ".join(applied))
-    return Store(db=db, watchlists=SqlWatchlistRepository(db))
+    return Store(db=db, watchlists=SqlWatchlistRepository(db), alerts=SqlAlertRepository(db))
 
 
 _stores: dict[str, Store] = {}

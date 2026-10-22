@@ -1,7 +1,8 @@
 # Local services for development and integration tests (none are needed to run the app).
 #
-#   docker compose -p roadmap-momentum up -d postgres
-#   MOMENTUM_TEST_POSTGRES_URL=postgresql://momentum:momentum@127.0.0.1:5421/momentum uv run pytest
+#   docker compose -p roadmap-momentum up -d postgres mailpit
+#   MOMENTUM_TEST_POSTGRES_URL=postgresql://momentum:momentum@127.0.0.1:5421/momentum \
+#   MOMENTUM_TEST_MAILPIT_API=http://127.0.0.1:5423 uv run pytest
 #   docker compose -p roadmap-momentum down
 #
 # Ports are bound to 127.0.0.1 only. Credentials are for local use.
@@ -23,3 +24,29 @@ services:
       retries: 30
     tmpfs:
       - /var/lib/postgresql/data
+
+  # Catches every email the alert worker sends: SMTP on 5422, web UI and API on 5423.
+  #   MOMENTUM_SMTP_HOST=127.0.0.1 MOMENTUM_SMTP_PORT=5422 MOMENTUM_SMTP_STARTTLS=0
+  #   MOMENTUM_SMTP_FROM="Momentum <alerts@momentum.test>"
+  mailpit:
+    image: axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
+    ports:
+      - "127.0.0.1:5422:1025"
+      - "127.0.0.1:5423:8025"
+
+  # OIDC sign-in for st.login (profile "oidc": docker compose --profile oidc up -d keycloak).
+  # Realm "momentum" with a confidential client and two local users (one with a
+  # verified email); see deploy/keycloak/momentum-realm.json and the README.
+  keycloak:
+    profiles: ["oidc"]
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin-local-only
+      JAVA_OPTS_KC_HEAP: "-XX:MaxRAMPercentage=50 -Xmx512m"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:5424:8080"
+    mem_limit: 900m

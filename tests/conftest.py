@@ -25,6 +25,7 @@ POSTGRES_URL = os.environ.get("MOMENTUM_TEST_POSTGRES_URL", "").strip()
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     data_dir = tmp_path / "data"
     monkeypatch.setenv("MOMENTUM_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("MOMENTUM_ALERT_WORKER", "off")  # tests drive the loop themselves
     for name in ("MOMENTUM_DATABASE_URL", "MOMENTUM_SECRET_KEY", "MOMENTUM_SECRET_KEY_PREVIOUS"):
         monkeypatch.delenv(name, raising=False)
     store.close_all()

@@ -74,6 +74,14 @@ is an illustration and shows no market data.</sub>
   source does not know is refused with a reason, a list holds at most twelve, and two tabs editing
   at once never undo each other. Under plain `streamlit run` the list is kept for the session, and
   the Watchlist tab says so.
+- **Price and indicator alerts.** Price crosses above or below a level, day change beyond ±x%,
+  RSI (14) crossing a level, and SMA 20/50 or 50/200 crossovers. A background loop checks them
+  every minute, even with the page closed. Each alert fires once per cross, and re-arms only after
+  the value moves back past a hysteresis band, with a cooldown on top, so a price wobbling around
+  the level does not cause an alert storm. Notifications appear in the app (a toast on any open
+  page, plus a list in the Alerts tab). Optionally they also go by email, to an identity provider's
+  verified address only, or to a webhook signed with HMAC-SHA256. See
+  [ADR 0002](docs/adr/0002-alerts.md) and [Alerts](#alerts).
 - **CSV export** of the visible prices plus indicators, the comparison and the watchlist, at full
   precision.
 - **Designed failure states.** An unknown symbol, a network outage or a Yahoo rate limit each
@@ -249,6 +257,10 @@ What remains belongs to the framework, as the bare-app rows show:
 | `MOMENTUM_COOKIE_SECURE` | env var | `auto` (Secure on HTTPS) | `1` behind a TLS-terminating proxy |
 | `MOMENTUM_DEVICE_RETENTION_DAYS` | env var | `400` | Anonymous watchlists not seen for this long are deleted |
 | `MOMENTUM_OIDC_*` | env var | unset (sign-in off) | OIDC sign-in, see [Sign-in](#sign-in-optional) |
+| `MOMENTUM_ALERT_WORKER` | env var | `auto` | `auto` runs the alert loop in the app process; `external` leaves it to `python -m momentum.alerts run`; `off` disables it |
+| `MOMENTUM_ALERT_INTERVAL_S` | env var | `60` | Seconds between alert checks (minimum 10) |
+| `MOMENTUM_SMTP_HOST`, `_PORT`, `_FROM`, `_STARTTLS`, `_SSL`, `_USERNAME`, `_PASSWORD` | env vars | unset (email off) | SMTP for email alerts |
+| `MOMENTUM_WEBHOOK_ALLOW_PRIVATE` | env var | `0` | `1` allows `http://` and private addresses for webhooks (local development only) |
 
 Any `STREAMLIT_*` environment variable (for example `STREAMLIT_SERVER_PORT`) works as usual.
 No API keys or secrets are required.
@@ -270,6 +282,59 @@ MOMENTUM_SECRET_KEY=...            # 32+ characters; the session-cookie secret i
 
 A signed-in list is keyed by the identity provider's issuer and subject, not the email address.
 The design and its trade-offs are in [ADR 0001](docs/adr/0001-watchlist-identity-and-storage.md).
+
+## Alerts
+
+Alerts live in the **Alerts** tab and need a saved identity (a device cookie or a sign-in, as for
+the watchlist). The loop runs inside the app by default. To run it as its own process instead:
+
+```bash
+MOMENTUM_ALERT_WORKER=external uv run streamlit run serve.py   # the app, without the loop
+uv run python -m momentum.alerts run                           # the loop (stops cleanly on SIGTERM)
+uv run python -m momentum.alerts once                          # one cycle, e.g. from cron
+```
+
+Several loops at once are safe: each state change is a compare-and-set in the database, so an
+alert notifies once whichever loop sees the cross first.
+
+**Email** goes only to an address the identity provider has verified, so it needs
+[sign-in](#sign-in-optional) plus an SMTP server. Locally, Mailpit catches everything:
+
+```bash
+docker compose -p roadmap-momentum up -d mailpit      # SMTP on 5422, inbox at http://127.0.0.1:5423
+MOMENTUM_SMTP_HOST=127.0.0.1 MOMENTUM_SMTP_PORT=5422 MOMENTUM_SMTP_STARTTLS=0 MOMENTUM_SMTP_FROM="Momentum <alerts@momentum.test>" uv run streamlit run serve.py
+```
+
+**Webhooks** receive a JSON `POST` for each alert that has Webhook ticked. Add the URL under
+*Webhook delivery* in the Alerts tab; the signing secret is shown once.
+
+- Only `https` URLs that resolve to public addresses are accepted, and the request goes to the
+  address that was checked.
+- Redirects are not followed and requests time out after 5 s.
+- Failed deliveries are retried with backoff, up to six attempts.
+- Every request carries `Momentum-Event-Id` (for de-duplication) and
+  `Momentum-Signature: t=<unix time>,v1=<hex>`.
+
+To verify a request:
+
+```python
+import hashlib, hmac, time
+
+
+def verify(secret: str, header: str, body: bytes, tolerance_s: int = 300) -> bool:
+    fields = dict(part.split("=", 1) for part in header.split(","))
+    timestamp, signature = int(fields["t"]), fields["v1"]
+    expected = hmac.new(secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256)
+    fresh = abs(time.time() - timestamp) <= tolerance_s
+    return fresh and hmac.compare_digest(expected.hexdigest(), signature)
+```
+
+To see an alert fire without waiting for the market, create one in the Alerts tab (for example
+AAPL, price crosses above 250, in demo mode) and replay prices into it:
+
+```bash
+uv run python -m momentum.alerts replay AAPL 240 251    # 240 arms it, 251 crosses
+```
 
 ## Testing and quality
 
@@ -381,7 +446,6 @@ advice.**
 
 These features are not implemented yet:
 
-- Price and indicator alerts.
 - Portfolio view with holdings, cost basis and P&L.
 - A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.
 - Fundamentals tab (income statement, balance sheet, dividends).

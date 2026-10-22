@@ -27,7 +27,10 @@ def settle(page: Any) -> None:
 
 def rail_symbols(page: Any) -> list[str]:
     page.wait_for_selector(RAIL_ROWS, timeout=60_000)
-    return [str(s) for s in page.eval_on_selector_all(RAIL_ROWS, "els => els.map(e => e.dataset.symbol)")]
+    return [
+        str(s)
+        for s in page.eval_on_selector_all(RAIL_ROWS, "els => els.map(e => e.dataset.symbol)")
+    ]
 
 
 def add_watchlist_symbol(page: Any, symbol: str) -> None:

@@ -16,11 +16,12 @@ import os
 
 import streamlit as st
 
-from momentum.server import MIDDLEWARE, ROUTES, oidc_secrets
+from momentum.server import MIDDLEWARE, ROUTES, lifespan, oidc_secrets
 
 app = st.App(
     "streamlit_app.py",
     routes=ROUTES,
     middleware=MIDDLEWARE,
+    lifespan=lifespan,
     secrets=oidc_secrets(os.environ) or None,
 )

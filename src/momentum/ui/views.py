@@ -595,7 +595,7 @@ def save_status(who: Identity) -> None:
     can_sign_in = session.auth_configured()
     copy = saved.status_copy(saved.status(), who, can_sign_in=can_sign_in)
     with st.container(key="save_status", horizontal=True, vertical_alignment="center", gap="small"):
-        components.fineprint(copy.text)
+        components.fineprint(copy.text, width="content")
         if copy.sign_in:
             st.button("Sign in", key="sign_in", type="tertiary", on_click=st.login)
         elif who.kind == "account" and can_sign_in:

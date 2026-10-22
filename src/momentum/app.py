@@ -17,12 +17,13 @@ import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
 from momentum import config, data
+from momentum.alerts import worker
 from momentum.data import DataError
 from momentum.theme import get_theme
-from momentum.ui import components, saved, session, views
+from momentum.ui import alerts_view, components, saved, session, styling, views
 from momentum.ui.rail import rail_height
 
-TABS = ("Overview", "Compare", "Watchlist")
+TABS = ("Overview", "Compare", "Watchlist", "Alerts")
 RAIL_WIDTH = 320
 SEARCH_WIDTH = 200  # wordmark + field fit one row at 390 px
 FIRST_PAINT_PAUSE_S = 0.12
@@ -112,6 +113,7 @@ def main() -> None:
     if first_run:
         _let_layout_settle()
     components.inject_styles()
+    styling.inject_feature_styles()
     theme = get_theme(st.context.theme.type)
     who = session.current_identity()
     saved.sync_watchlist(who)
@@ -153,7 +155,7 @@ def main() -> None:
     with main_column:
         if demo:
             components.demo_notice()
-        overview_tab, compare_tab, watch_tab = st.tabs(
+        overview_tab, compare_tab, watch_tab, alerts_tab = st.tabs(
             list(TABS), key="view", on_change="rerun", bind="query-params"
         )
         if overview_tab.open is not False:
@@ -170,6 +172,9 @@ def main() -> None:
         if watch_tab.open:
             with watch_tab:
                 views.watchlist(demo, theme, first_run=first_run, who=who)
+        if alerts_tab.open:
+            with alerts_tab:
+                alerts_view.alerts(raw_symbol or "", demo, who)
 
     # The rail renders after the main column: on phones it sits below it, so
     # rendering it first would let the arriving chart push it down the page.
@@ -183,4 +188,9 @@ def main() -> None:
 
     st.space("large")
     components.theme_watcher()
+    if who.persistent:
+        alerts_view.notification_toasts()
+    # Alerts are checked by a background loop; serve.py starts it with the server,
+    # and this starts it under plain `streamlit run` (once per process).
+    worker.ensure_started()
     st.session_state["_mm_rendered"] = True

@@ -19,10 +19,24 @@ from momentum.config import is_truthy
 
 DEFAULT_DATA_DIR: Final = ".momentum"
 DEFAULT_DEVICE_RETENTION_DAYS: Final = 400
+DEFAULT_ALERT_INTERVAL_S: Final = 60
+ALERT_WORKER_MODES: Final = ("auto", "external", "off")
 
 
 class SettingsError(ValueError):
     """An environment variable holds a value the app cannot use."""
+
+
+@dataclass(frozen=True, slots=True)
+class SmtpSettings:
+    host: str
+    port: int
+    sender: str
+    starttls: bool
+    ssl: bool
+    username: str | None
+    password: str | None
+    timeout_s: float = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +47,10 @@ class Settings:
     previous_secret_key: str | None
     cookie_secure: bool | None  # None: decide per request from the URL scheme
     device_retention_days: int
+    alert_worker: str = "auto"
+    alert_interval_s: int = DEFAULT_ALERT_INTERVAL_S
+    smtp: SmtpSettings | None = None
+    webhook_allow_private: bool = False
 
     @property
     def is_postgres(self) -> bool:
@@ -80,6 +98,10 @@ def load(env: Mapping[str, str] | None = None) -> Settings:
     if secret is not None and len(secret) < 32:
         msg = "MOMENTUM_SECRET_KEY must be at least 32 characters"
         raise SettingsError(msg)
+    worker = env.get("MOMENTUM_ALERT_WORKER", "").strip().lower() or "auto"
+    if worker not in ALERT_WORKER_MODES:
+        msg = f"MOMENTUM_ALERT_WORKER must be one of {', '.join(ALERT_WORKER_MODES)}"
+        raise SettingsError(msg)
     return Settings(
         data_dir=data_dir,
         database_url=database_url,
@@ -89,4 +111,32 @@ def load(env: Mapping[str, str] | None = None) -> Settings:
         device_retention_days=_int(
             env, "MOMENTUM_DEVICE_RETENTION_DAYS", DEFAULT_DEVICE_RETENTION_DAYS
         ),
+        alert_worker=worker,
+        alert_interval_s=_int(
+            env, "MOMENTUM_ALERT_INTERVAL_S", DEFAULT_ALERT_INTERVAL_S, minimum=10
+        ),
+        smtp=_smtp(env),
+        webhook_allow_private=is_truthy(env.get("MOMENTUM_WEBHOOK_ALLOW_PRIVATE", "")),
+    )
+
+
+def _smtp(env: Mapping[str, str]) -> SmtpSettings | None:
+    """Email delivery is on when ``MOMENTUM_SMTP_HOST`` is set."""
+    host = _optional(env, "MOMENTUM_SMTP_HOST")
+    if host is None:
+        return None
+    sender = _optional(env, "MOMENTUM_SMTP_FROM")
+    if sender is None or "@" not in sender or any(c in sender for c in "\r\n"):
+        msg = "MOMENTUM_SMTP_FROM must be an address such as Momentum <alerts@example.com>"
+        raise SettingsError(msg)
+    ssl = is_truthy(env.get("MOMENTUM_SMTP_SSL", ""))
+    starttls_raw = env.get("MOMENTUM_SMTP_STARTTLS", "").strip()
+    return SmtpSettings(
+        host=host,
+        port=_int(env, "MOMENTUM_SMTP_PORT", 465 if ssl else 587),
+        sender=sender,
+        starttls=False if ssl else (is_truthy(starttls_raw) if starttls_raw else True),
+        ssl=ssl,
+        username=_optional(env, "MOMENTUM_SMTP_USERNAME"),
+        password=_optional(env, "MOMENTUM_SMTP_PASSWORD"),
     )

@@ -25,11 +25,11 @@ OTHER = Owner("dev_BBBBBBBBBBBBBBBBBBBBBB", "device")
 ACCOUNT = Owner("acct_" + "a" * 40, "account")
 
 
-def run_concurrently(count: int, work: Callable[[int], object]) -> list[object]:
+def run_concurrently[T](count: int, work: Callable[[int], T]) -> list[T]:
     """Run ``work(i)`` on ``count`` threads that all start at the same moment."""
     barrier = threading.Barrier(count)
 
-    def go(i: int) -> object:
+    def go(i: int) -> T:
         barrier.wait()
         return work(i)
 
@@ -251,7 +251,7 @@ class TestWatchlists:
         assert saved is not None
         assert len(saved.symbols) == config.MAX_WATCHLIST
         assert len(set(saved.symbols)) == len(saved.symbols)
-        refused = [s for r in results for s in r.over_limit]  # type: ignore[attr-defined]
+        refused = [s for r in results for s in r.over_limit]
         assert sorted(refused + list(saved.symbols)) == sorted(symbols)
         assert saved.version == 20  # every write was applied, one at a time
 

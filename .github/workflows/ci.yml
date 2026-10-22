@@ -36,8 +36,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U momentum -d momentum"
           --health-interval 2s --health-timeout 3s --health-retries 30
+      # Alert emails are sent to a real SMTP server and read back through its API.
+      mailpit:
+        image: axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
       MOMENTUM_TEST_POSTGRES_URL: postgresql://momentum:momentum@127.0.0.1:5432/momentum
+      MOMENTUM_TEST_MAILPIT_API: http://127.0.0.1:8025
+      MOMENTUM_TEST_MAILPIT_SMTP_PORT: "1025"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

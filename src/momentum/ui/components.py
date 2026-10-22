@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from functools import cache
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import streamlit as st
@@ -224,8 +224,8 @@ def hairline() -> None:
     st.html('<hr class="mm-hairline" style="margin:0;border:0;height:1px">')
 
 
-def fineprint(text: str) -> None:
-    st.html(f'<p class="mm-fineprint">{escape(text)}</p>')
+def fineprint(text: str, *, width: Literal["stretch", "content"] = "stretch") -> None:
+    st.html(f'<p class="mm-fineprint">{escape(text)}</p>', width=width)
 
 
 def demo_notice() -> None:

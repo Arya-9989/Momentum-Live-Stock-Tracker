@@ -32,7 +32,8 @@ from __future__ import annotations
 import gzip
 import html
 import re
-from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Final
 
@@ -234,6 +235,25 @@ async def robots(_: Request) -> PlainTextResponse:
 ROUTES: Final = [Route("/robots.txt", robots, methods=["GET", "HEAD"])]
 # The device cookie is outermost, so it sees the final document response.
 MIDDLEWARE: Final = [Middleware(DeviceCookieMiddleware), Middleware(FrontendMiddleware)]
+
+
+@asynccontextmanager
+async def lifespan(_app: object) -> AsyncIterator[None]:
+    """Run the alert loop for as long as the server runs, and stop it cleanly.
+
+    The worker module is imported here, not at the top: it pulls in the data
+    layer, whose Streamlit caches should be created once the runtime exists.
+    """
+    from momentum import store
+    from momentum.alerts import worker
+
+    worker.ensure_started()
+    try:
+        yield
+    finally:
+        await anyio.to_thread.run_sync(worker.stop_running)
+        store.close_all()
+
 
 _OIDC_ENV: Final = {
     "server_metadata_url": "MOMENTUM_OIDC_SERVER_METADATA_URL",
