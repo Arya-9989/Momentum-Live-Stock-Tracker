@@ -67,6 +67,13 @@ is an illustration and shows no market data.</sub>
   rows) to open it. The
   **Watchlist** tab holds up to twelve symbols in a full table with 52-week position and range,
   market cap and P/E; select a row there to open that symbol.
+- **A saved watchlist.** Edits are saved as you make them and come back on your next visit,
+  with no account needed: `serve.py` gives each browser a signed, HttpOnly device cookie, and the
+  list is stored in SQLite (or Postgres). With OIDC sign-in configured, the list follows the
+  account instead, across devices. Symbols are validated before they are saved, a symbol the data
+  source does not know is refused with a reason, a list holds at most twelve, and two tabs editing
+  at once never undo each other. Under plain `streamlit run` the list is kept for the session, and
+  the Watchlist tab says so.
 - **CSV export** of the visible prices plus indicators, the comparison and the watchlist, at full
   precision.
 - **Designed failure states.** An unknown symbol, a network outage or a Yahoo rate limit each
@@ -158,6 +165,9 @@ docker run --rm -p 8501:8501 momentum
 docker run --rm -p 8501:8501 -e MOMENTUM_DEMO=1 momentum
 ```
 
+To keep saved watchlists across container replacements, mount a volume on `/data`:
+`docker run --rm -p 8501:8501 -v momentum-data:/data momentum`.
+
 Open <http://localhost:8501>. The image is multi-stage, runs as a non-root user, has a
 `HEALTHCHECK` on Streamlit's `/_stcore/health` endpoint, and serves the app through `serve.py`
 (see [Performance](#performance)).
@@ -232,9 +242,34 @@ What remains belongs to the framework, as the bare-app rows show:
 | `?ticker=`, `?range=`, `?view=` | URL | `AAPL`, `6M`, `Overview` | Deep links |
 | Theme, server options | `.streamlit/config.toml` | | Light/dark palettes, Inter, headless server |
 | Cache TTLs, defaults | `src/momentum/config.py` | quotes 60 s, intraday 60 s, daily 15 min, profile 24 h | |
+| `MOMENTUM_DATA_DIR` | env var | `./.momentum` (`/data` in the image) | SQLite database and the generated signing key |
+| `MOMENTUM_DATABASE_URL` | env var | SQLite in the data directory | `postgresql://user:pass@host/db` to use Postgres (`uv sync --extra postgres`; the image includes it) |
+| `MOMENTUM_SECRET_KEY` | env var | generated into `secret.key` | 32+ characters; signs device cookies. Set it when running several replicas |
+| `MOMENTUM_SECRET_KEY_PREVIOUS` | env var | unset | The old key during a rotation; its cookies are accepted and re-signed |
+| `MOMENTUM_COOKIE_SECURE` | env var | `auto` (Secure on HTTPS) | `1` behind a TLS-terminating proxy |
+| `MOMENTUM_DEVICE_RETENTION_DAYS` | env var | `400` | Anonymous watchlists not seen for this long are deleted |
+| `MOMENTUM_OIDC_*` | env var | unset (sign-in off) | OIDC sign-in, see [Sign-in](#sign-in-optional) |
 
 Any `STREAMLIT_*` environment variable (for example `STREAMLIT_SERVER_PORT`) works as usual.
 No API keys or secrets are required.
+
+### Sign-in (optional)
+
+Without sign-in, a watchlist belongs to a browser. To let people keep it across devices, configure
+any OpenID Connect provider for `st.login`, either in `.streamlit/secrets.toml` (an `[auth]`
+table, as in the [Streamlit docs](https://docs.streamlit.io/develop/api-reference/user/st.login))
+or, for containers, with environment variables that `serve.py` turns into the same settings:
+
+```bash
+MOMENTUM_OIDC_SERVER_METADATA_URL=https://idp.example.com/realms/momentum/.well-known/openid-configuration
+MOMENTUM_OIDC_CLIENT_ID=momentum
+MOMENTUM_OIDC_CLIENT_SECRET=...
+MOMENTUM_OIDC_REDIRECT_URI=https://momentum.example.com/oauth2callback
+MOMENTUM_SECRET_KEY=...            # 32+ characters; the session-cookie secret is derived from it
+```
+
+A signed-in list is keyed by the identity provider's issuer and subject, not the email address.
+The design and its trade-offs are in [ADR 0001](docs/adr/0001-watchlist-identity-and-storage.md).
 
 ## Testing and quality
 
@@ -346,7 +381,6 @@ advice.**
 
 These features are not implemented yet:
 
-- Persist the watchlist per user (it currently lives in the browser session).
 - Price and indicator alerts.
 - Portfolio view with holdings, cost basis and P&L.
 - A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.

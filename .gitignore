@@ -18,6 +18,12 @@ dist/
 coverage.xml
 htmlcov/
 
+# Local app data (SQLite database, generated signing key)
+.momentum/
+
+# Local app data (SQLite database, generated signing key)
+.momentum/
+
 # Streamlit secrets never belong in git
 .streamlit/secrets.toml
 

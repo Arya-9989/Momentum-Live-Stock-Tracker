@@ -6,6 +6,10 @@
 .pytest_cache
 .ruff_cache
 .coverage
+.momentum
+compose.yaml
+.momentum
+compose.yaml
 htmlcov
 **/__pycache__
 **/*.pyc

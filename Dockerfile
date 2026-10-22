@@ -16,12 +16,12 @@ WORKDIR /src
 # Dependencies first so this layer is cached until uv.lock changes.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --no-install-project --extra postgres --extra auth
 
 COPY README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --no-editable --extra postgres --extra auth
 
 # Brotli copies of Streamlit's frontend bundle, served by momentum.server to
 # browsers that accept br. Quality 11 is too slow per request but fine here.
@@ -42,7 +42,8 @@ LABEL org.opencontainers.image.title="momentum" \
       org.opencontainers.image.source="https://github.com/Arya-9989/Momentum-Live-Stock-Tracker"
 
 RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
+    && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app \
+    && install -d -o app -g app -m 0700 /data
 
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -50,15 +51,19 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
-    MOMENTUM_DEMO=0
+    MOMENTUM_DEMO=0 \
+    MOMENTUM_DATA_DIR=/data
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app streamlit_app.py serve.py ./
 COPY --chown=app:app .streamlit ./.streamlit
 
-USER app
+USER 10001:10001
 EXPOSE 8501
+# Saved data (SQLite) and the generated signing key. Mount a volume to keep them
+# across container replacements, or point MOMENTUM_DATABASE_URL at Postgres.
+VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]

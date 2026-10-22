@@ -14,8 +14,9 @@ from momentum import formatting as fmt
 from momentum import indicators as ind
 from momentum.charts import CHART_STYLES, ChartStyle
 from momentum.data import DataError, Quote
+from momentum.identity import Identity
 from momentum.theme import Theme
-from momentum.ui import components, messages, rail
+from momentum.ui import components, messages, rail, saved, session
 from momentum.ui.kpis import Kpi, build_kpis, key_stats
 
 OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
@@ -447,9 +448,7 @@ def bars_per_year(close: pd.Series, interval: str) -> int:
 
 def watchlist_symbols() -> list[str]:
     """The viewer's watchlist (the Watchlist tab edits it; the rail reads it)."""
-    raw = st.session_state.get("watchlist_symbols", list(config.DEFAULT_WATCHLIST))
-    symbols, _ = data.parse_symbol_list(raw, config.MAX_WATCHLIST)
-    return symbols
+    return saved.watchlist()
 
 
 def open_symbol(symbol: str) -> None:
@@ -591,7 +590,21 @@ EMPTY_WATCHLIST = messages.Copy(
 )
 
 
-def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
+def save_status(who: Identity) -> None:
+    """Where the watchlist is saved, with Sign in / Sign out when OIDC is configured."""
+    can_sign_in = session.auth_configured()
+    copy = saved.status_copy(saved.status(), who, can_sign_in=can_sign_in)
+    with st.container(key="save_status", horizontal=True, vertical_alignment="center", gap="small"):
+        components.fineprint(copy.text)
+        if copy.sign_in:
+            st.button("Sign in", key="sign_in", type="tertiary", on_click=st.login)
+        elif who.kind == "account" and can_sign_in:
+            st.button("Sign out", key="sign_out", type="tertiary", on_click=st.logout)
+
+
+def watchlist(
+    demo: bool, theme: Theme, *, first_run: bool = False, who: Identity = session.SESSION_IDENTITY
+) -> None:
     components.page_title(
         "Watchlist", "Quotes refresh every minute. Select a row to open it in the overview."
     )
@@ -603,17 +616,22 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
         first_run=first_run,
         skeleton=lambda: components.chart_skeleton(height),
     )
-    raw = st.multiselect(
+    # The widget mirrors the session's (saved) list; edits go through the store.
+    if st.session_state.get(saved.WIDGET_KEY) != symbols:
+        st.session_state[saved.WIDGET_KEY] = symbols
+    st.multiselect(
         "Symbols in your watchlist",
-        options=list(dict.fromkeys([*config.DEFAULT_WATCHLIST, *config.QUICK_PICKS])),
-        default=list(config.DEFAULT_WATCHLIST),
+        options=list(dict.fromkeys([*symbols, *config.DEFAULT_WATCHLIST, *config.QUICK_PICKS])),
         accept_new_options=True,
         max_selections=config.MAX_WATCHLIST,
-        key="watchlist_symbols",
+        key=saved.WIDGET_KEY,
         placeholder="Add a ticker",
-        persist_state="page",
+        on_change=saved.on_watchlist_change,
     )
-    symbols, rejected = data.parse_symbol_list(raw, config.MAX_WATCHLIST)
+    notice = st.session_state.pop(saved.NOTICE_KEY, None)
+    if notice:
+        components.fineprint(notice)
+    save_status(who)
     if not symbols:
         with table_slot:
             components.error_panel(EMPTY_WATCHLIST, height=height)
@@ -668,6 +686,4 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
         components.fineprint(
             messages.not_shown(failed, frozenset(r.symbol for r in results if r.transient))
         )
-    if rejected:
-        components.fineprint(f"Ignored, not ticker symbols: {', '.join(rejected)}.")
     components.csv_download(table.drop(columns=["1M trend"]), "watchlist.csv", key="dl_watch")

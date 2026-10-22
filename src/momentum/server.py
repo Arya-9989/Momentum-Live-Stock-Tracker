@@ -32,7 +32,7 @@ from __future__ import annotations
 import gzip
 import html
 import re
-from collections.abc import Awaitable, Callable, MutableMapping
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping
 from pathlib import Path
 from typing import Any, Final
 
@@ -41,6 +41,9 @@ from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
+from streamlit.runtime.secrets import SecretsValue
+
+from momentum.identity import DeviceCookieMiddleware, derive_key
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
@@ -229,4 +232,39 @@ async def robots(_: Request) -> PlainTextResponse:
 
 
 ROUTES: Final = [Route("/robots.txt", robots, methods=["GET", "HEAD"])]
-MIDDLEWARE: Final = [Middleware(FrontendMiddleware)]
+# The device cookie is outermost, so it sees the final document response.
+MIDDLEWARE: Final = [Middleware(DeviceCookieMiddleware), Middleware(FrontendMiddleware)]
+
+_OIDC_ENV: Final = {
+    "server_metadata_url": "MOMENTUM_OIDC_SERVER_METADATA_URL",
+    "client_id": "MOMENTUM_OIDC_CLIENT_ID",
+    "client_secret": "MOMENTUM_OIDC_CLIENT_SECRET",
+    "redirect_uri": "MOMENTUM_OIDC_REDIRECT_URI",
+}
+
+
+def oidc_secrets(env: Mapping[str, str]) -> dict[str, SecretsValue]:
+    """``st.login`` configuration from environment variables (for containers).
+
+    ``secrets.toml`` works as usual; this only lets a deployment configure OIDC
+    without mounting a file. It is all-or-nothing: a partial configuration is
+    an error, not a silently disabled sign-in. The session-cookie secret is
+    ``MOMENTUM_OIDC_COOKIE_SECRET`` or, failing that, derived from
+    ``MOMENTUM_SECRET_KEY``.
+    """
+    values = {key: env.get(name, "").strip() for key, name in _OIDC_ENV.items()}
+    if not any(values.values()):
+        return {}
+    missing = [_OIDC_ENV[key] for key, value in values.items() if not value]
+    if missing:
+        msg = f"OIDC sign-in is partly configured; also set {', '.join(missing)}"
+        raise ValueError(msg)
+    cookie_secret = env.get("MOMENTUM_OIDC_COOKIE_SECRET", "").strip()
+    if not cookie_secret:
+        base = env.get("MOMENTUM_SECRET_KEY", "").strip()
+        if len(base) < 32:
+            msg = "Set MOMENTUM_OIDC_COOKIE_SECRET or MOMENTUM_SECRET_KEY (32+ characters)"
+            raise ValueError(msg)
+        cookie_secret = derive_key(base, b"momentum/oidc-cookie/v1").hex()
+    auth: dict[str, SecretsValue] = {**values, "cookie_secret": cookie_secret}
+    return {"auth": auth}

@@ -24,6 +24,12 @@ dependencies = [
     "plotly>=7.1",
 ]
 
+[project.optional-dependencies]
+# Postgres instead of the default SQLite file (MOMENTUM_DATABASE_URL=postgresql://...).
+postgres = ["psycopg[binary]>=3.3", "psycopg-pool>=3.3"]
+# OIDC sign-in through st.login (Streamlit's own "auth" extra).
+auth = ["authlib>=1.9"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
@@ -76,12 +82,16 @@ files = ["src", "tests", "scripts", "streamlit_app.py", "serve.py"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "plotly.*", "brotli"]
+module = ["yfinance.*", "plotly.*", "brotli", "authlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "postgres: runs against Postgres (set MOMENTUM_TEST_POSTGRES_URL; skipped otherwise)",
+    "e2e: drives a live app in Chromium (set MOMENTUM_E2E_URL; skipped otherwise)",
+]
 filterwarnings = ["error::FutureWarning:momentum.*"]
 
 [tool.coverage.run]

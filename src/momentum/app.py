@@ -19,7 +19,7 @@ from streamlit.delta_generator import DeltaGenerator
 from momentum import config, data
 from momentum.data import DataError
 from momentum.theme import get_theme
-from momentum.ui import components, views
+from momentum.ui import components, saved, session, views
 from momentum.ui.rail import rail_height
 
 TABS = ("Overview", "Compare", "Watchlist")
@@ -113,6 +113,8 @@ def main() -> None:
         _let_layout_settle()
     components.inject_styles()
     theme = get_theme(st.context.theme.type)
+    who = session.current_identity()
+    saved.sync_watchlist(who)
 
     # Fixed height, like every other row above the fold: if the search field's
     # code fails to load, its error card must not push the page down.
@@ -167,7 +169,7 @@ def main() -> None:
                 )
         if watch_tab.open:
             with watch_tab:
-                views.watchlist(demo, theme, first_run=first_run)
+                views.watchlist(demo, theme, first_run=first_run, who=who)
 
     # The rail renders after the main column: on phones it sits below it, so
     # rendering it first would let the arriving chart push it down the page.

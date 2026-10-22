@@ -22,6 +22,22 @@ jobs:
     name: Lint, typecheck and test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Every repository test also runs against a real Postgres (the SQLite run
+    # needs nothing); the conftest picks it up from MOMENTUM_TEST_POSTGRES_URL.
+    services:
+      postgres:
+        image: postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+        env:
+          POSTGRES_USER: momentum
+          POSTGRES_PASSWORD: momentum
+          POSTGRES_DB: momentum
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U momentum -d momentum"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      MOMENTUM_TEST_POSTGRES_URL: postgresql://momentum:momentum@127.0.0.1:5432/momentum
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -32,8 +48,9 @@ jobs:
           enable-cache: true
 
       - name: Install locked dependencies
-        # All groups, so mypy can also type-check the Playwright screenshot script.
-        run: uv sync --locked --all-groups
+        # All groups, so mypy can also type-check the Playwright screenshot script,
+        # and all extras (Postgres driver, Authlib) for the tests that use them.
+        run: uv sync --locked --all-groups --all-extras
 
       - name: Ruff lint
         run: uv run ruff check --output-format=github .
@@ -106,11 +123,26 @@ jobs:
           print('rendered')
           "
 
+      - name: Saved data works inside the image
+        # The non-root user can create and migrate the SQLite database in /data.
+        run: |
+          docker exec momentum python -c "
+          from momentum import store
+          from momentum.store.owners import Owner
+          repo = store.get_store().watchlists
+          owner = Owner('dev_' + 'A' * 22, 'device')
+          assert repo.apply(owner, add=['AAPL']).watchlist.symbols == ('AAPL',)
+          print('saved')
+          "
+
       - name: Production HTTP layer
-        # serve.py: real robots.txt and title, gzip for the static bundle.
+        # serve.py: real robots.txt and title, gzip for the static bundle, and the
+        # signed HttpOnly device cookie on the document.
         run: |
           robots="$(curl --fail --silent http://localhost:8501/robots.txt)"
           grep -q "User-agent: \*" <<< "$robots"
+          document="$(curl --fail --silent -D - -o /dev/null http://localhost:8501/)"
+          grep -qi "set-cookie: momentum_device=v1\..*HttpOnly; SameSite=Lax" <<< "$document"
           page="$(curl --fail --silent http://localhost:8501/)"
           grep -q "<title>Momentum" <<< "$page"
           js="$(grep -o 'static/js/index[^"]*' <<< "$page" | head -n 1)"
