@@ -1,13 +1,18 @@
 """Technical indicators as pure pandas functions.
 
-Conventions follow the original definitions as documented by StockCharts:
+Conventions follow the original definitions as documented by StockCharts ChartSchool:
 
 * SMA is a plain rolling mean that is undefined until ``window`` observations exist.
-* EMA uses the recursive form ``ema_t = alpha * x_t + (1 - alpha) * ema_{t-1}`` with
-  ``alpha = 2 / (span + 1)``, seeded with the first observation (pandas ``adjust=False``).
+* EMA uses the recursion ``ema_t = alpha * x_t + (1 - alpha) * ema_{t-1}`` with
+  ``alpha = 2 / (span + 1)``, seeded with the SMA of the first ``span`` observations
+  and undefined before that (so a short series never shows a seed-biased line).
+* MACD is EMA(fast) - EMA(slow); its signal line is the same SMA-seeded EMA of MACD.
 * RSI uses Wilder's smoothing, seeded with the simple average of the first ``period``
   gains/losses, which is what charting platforms display.
 * Bollinger Bands use the population standard deviation (``ddof=0``), as Bollinger specifies.
+
+Missing values (NaN) inside a series are skipped by the recursive indicators rather
+than poisoning every later value, and stay NaN in the output.
 """
 
 from __future__ import annotations
@@ -31,9 +36,16 @@ def sma(series: pd.Series, window: int) -> pd.Series:
 
 
 def ema(series: pd.Series, span: int) -> pd.Series:
-    """Exponential moving average seeded with the first value."""
+    """Exponential moving average, seeded with the SMA of the first ``span`` values."""
     _require_positive("span", span)
-    return series.ewm(span=span, adjust=False).mean().rename(f"EMA {span}")
+    out = pd.Series(np.nan, index=series.index, name=f"EMA {span}", dtype=float)
+    valid = series.dropna().astype(float)
+    if len(valid) < span:
+        return out
+    seed = float(valid.iloc[:span].mean())
+    seeded = pd.Series([seed, *valid.iloc[span:].tolist()], index=valid.index[span - 1 :])
+    out.loc[seeded.index] = seeded.ewm(alpha=2.0 / (span + 1), adjust=False).mean()
+    return out
 
 
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
@@ -43,10 +55,12 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     RSI is 100; when price is completely flat it is 50 (neutral).
     """
     _require_positive("period", period)
-    values = close.to_numpy(dtype=float)
+    result = pd.Series(np.nan, index=close.index, name=f"RSI {period}", dtype=float)
+    valid = close.dropna()
+    values = valid.to_numpy(dtype=float)
     out = np.full(values.shape, np.nan)
     if values.size <= period:
-        return pd.Series(out, index=close.index, name=f"RSI {period}")
+        return result
 
     delta = np.diff(values)
     gains = np.clip(delta, 0, None)
@@ -59,7 +73,8 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
         out[i + 1] = _rsi_value(avg_gain, avg_loss)
-    return pd.Series(out, index=close.index, name=f"RSI {period}")
+    result.loc[valid.index] = out
+    return result
 
 
 def _rsi_value(avg_gain: float, avg_loss: float) -> float:
@@ -75,7 +90,7 @@ def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> p
         msg = f"fast span ({fast}) must be shorter than slow span ({slow})"
         raise ValueError(msg)
     line = ema(close, fast) - ema(close, slow)
-    signal_line = line.ewm(span=signal, adjust=False).mean()
+    signal_line = ema(line, signal)
     return pd.DataFrame(
         {"MACD": line, "Signal": signal_line, "Histogram": line - signal_line},
         index=close.index,

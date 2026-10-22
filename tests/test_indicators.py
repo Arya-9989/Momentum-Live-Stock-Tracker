@@ -90,14 +90,43 @@ class TestSMA:
             ind.sma(series([1, 2, 3]), window)
 
 
+# StockCharts ChartSchool "Moving Averages" worksheet (cs-movavg.xls): 10-day EMA,
+# seeded with the 10-day SMA. The sheet rounds to the cent from unrounded inputs, so
+# one value sits on a rounding boundary (23.5335 vs 23.54); 0.01 is the tolerance.
+EMA_CLOSES = [
+    22.27, 22.19, 22.08, 22.17, 22.18, 22.13, 22.23, 22.43, 22.24, 22.29,
+    22.15, 22.39, 22.38, 22.61, 23.36, 24.05, 23.75, 23.83, 23.95, 23.63,
+    23.82, 23.87, 23.65, 23.19, 23.10, 23.33, 22.68, 23.10, 22.40, 22.17,
+]  # fmt: skip
+EMA_EXPECTED = [
+    22.22, 22.21, 22.24, 22.27, 22.33, 22.52, 22.80, 22.97, 23.13, 23.28, 23.34,
+    23.43, 23.51, 23.54, 23.47, 23.40, 23.39, 23.26, 23.23, 23.08, 22.92,
+]  # fmt: skip
+
+
 class TestEMA:
-    def test_recursive_definition(self) -> None:
-        # span=3 -> alpha=0.5: 10, 0.5*11+0.5*10=10.5, 0.5*12+0.5*10.5=11.25, ...
-        result = ind.ema(series([10, 11, 12, 13]), 3)
-        assert result.tolist() == pytest.approx([10.0, 10.5, 11.25, 12.125])
+    def test_matches_stockcharts_reference(self) -> None:
+        result = ind.ema(series(EMA_CLOSES), 10)
+        assert result.iloc[:9].isna().all()
+        assert result.iloc[9:].tolist() == pytest.approx(EMA_EXPECTED, abs=0.0101)
+
+    def test_recursive_definition_seeded_with_sma(self) -> None:
+        # span=3 -> alpha=0.5, seed = mean(10, 11, 12) = 11, then 0.5*13+0.5*11 = 12, ...
+        result = ind.ema(series([10, 11, 12, 13, 14]), 3)
+        assert result.iloc[:2].isna().all()
+        assert result.iloc[2:].tolist() == pytest.approx([11.0, 12.0, 13.0])
+        assert result.name == "EMA 3"
+
+    def test_short_series_is_all_nan(self) -> None:
+        assert ind.ema(series([1.0, 2.0]), 12).isna().all()
+
+    def test_skips_missing_values(self) -> None:
+        result = ind.ema(series([10, 11, np.nan, 12, 13, 14]), 3)
+        assert math.isnan(result.iloc[2])
+        assert result.dropna().tolist() == pytest.approx([11.0, 12.0, 13.0])
 
     def test_constant_series_is_constant(self) -> None:
-        assert ind.ema(series([7.0] * 30), 12).tolist() == pytest.approx([7.0] * 30)
+        assert ind.ema(series([7.0] * 30), 12).dropna().tolist() == pytest.approx([7.0] * 19)
 
 
 class TestRSI:
@@ -120,6 +149,13 @@ class TestRSI:
         assert len(result) == 3
         assert result.isna().all()
 
+    def test_a_missing_value_does_not_poison_later_values(self) -> None:
+        closes = [*RSI_CLOSES[:20], math.nan, *RSI_CLOSES[20:]]
+        result = ind.rsi(series(closes), 14)
+        assert math.isnan(result.iloc[20])
+        # Skipping the gap reproduces the reference exactly.
+        assert result.dropna().round(2).tolist() == pytest.approx(RSI_EXPECTED, abs=0.01)
+
     def test_bounded(self) -> None:
         rng = np.random.default_rng(0)
         prices = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, 500)))
@@ -133,26 +169,34 @@ class TestMACD:
         result = ind.macd(closes, 12, 26, 9)
         expected_line = ind.ema(closes, 12) - ind.ema(closes, 26)
         pd.testing.assert_series_equal(result["MACD"], expected_line, check_names=False)
-        expected_signal = expected_line.ewm(span=9, adjust=False).mean()
+        expected_signal = ind.ema(expected_line, 9)
         pd.testing.assert_series_equal(result["Signal"], expected_signal, check_names=False)
         pd.testing.assert_series_equal(
             result["Histogram"], expected_line - expected_signal, check_names=False
         )
 
     def test_hand_computed_first_values(self) -> None:
-        # fast=2 (alpha 2/3), slow=3 (alpha 1/2), signal=2 (alpha 2/3) on [1, 2, 4].
-        result = ind.macd(series([1.0, 2.0, 4.0]), fast=2, slow=3, signal=2)
-        fast = [1.0, 1 + 2 / 3, (2 / 3) * 4 + (1 / 3) * (5 / 3)]
-        slow = [1.0, 1.5, 0.5 * 4 + 0.5 * 1.5]
-        line = [f - s for f, s in zip(fast, slow, strict=True)]
-        assert result["MACD"].tolist() == pytest.approx(line)
-        signal = [line[0]]
-        for value in line[1:]:
-            signal.append((2 / 3) * value + (1 / 3) * signal[-1])
-        assert result["Signal"].tolist() == pytest.approx(signal)
+        # fast=2 (alpha 2/3), slow=3 (alpha 1/2), signal=2 on [1, 2, 4, 8], SMA-seeded.
+        result = ind.macd(series([1.0, 2.0, 4.0, 8.0]), fast=2, slow=3, signal=2)
+        fast_2 = (2 / 3) * 4 + (1 / 3) * 1.5  # seed mean(1, 2) = 1.5 at bar 1
+        fast_3 = (2 / 3) * 8 + (1 / 3) * fast_2
+        slow_2 = 7 / 3  # seed mean(1, 2, 4) at bar 2
+        slow_3 = 0.5 * 8 + 0.5 * slow_2
+        line = [fast_2 - slow_2, fast_3 - slow_3]
+        assert result["MACD"].iloc[:2].isna().all()
+        assert result["MACD"].iloc[2:].tolist() == pytest.approx(line)
+        # The signal line is seeded with the mean of the first two MACD values.
+        assert result["Signal"].iloc[:3].isna().all()
+        assert result["Signal"].iloc[3] == pytest.approx(sum(line) / 2)
+
+    def test_needs_slow_plus_signal_bars(self) -> None:
+        result = ind.macd(series(np.linspace(1, 50, 40).tolist()))
+        assert result["MACD"].first_valid_index() == result.index[25]
+        assert result["Signal"].first_valid_index() == result.index[33]
 
     def test_constant_series_has_zero_macd(self) -> None:
-        result = ind.macd(series([50.0] * 40))
+        result = ind.macd(series([50.0] * 40)).dropna()
+        assert not result.empty
         assert np.allclose(result.to_numpy(), 0.0)
 
     def test_rejects_fast_not_shorter_than_slow(self) -> None:
