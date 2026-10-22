@@ -149,3 +149,82 @@ def test_serve_py_is_detected_as_an_st_app() -> None:
     tree = ast.parse((ROOT / "serve.py").read_text(encoding="utf-8"))
     call_node = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
     assert ast.literal_eval(call_node.args[0]) == "streamlit_app.py"
+
+
+def brotli_root(tmp_path: Path) -> Path:
+    asset = tmp_path / "static" / "js" / "index.abc.js"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(BUNDLE)
+    asset.with_name(asset.name + ".br").write_bytes(b"precompressed-brotli")
+    return tmp_path
+
+
+def test_build_time_brotli_is_preferred_when_accepted(tmp_path: Path) -> None:
+    app = server.FrontendMiddleware(FakeStreamlit(), static_root=brotli_root(tmp_path))
+    _, headers, body = call(app, "/static/js/index.abc.js", headers=GZIP)
+    assert headers[b"content-encoding"] == b"br"
+    assert body == b"precompressed-brotli"
+    assert headers[b"etag"] == b'W/"abc123-br"'
+    # Without "br" in Accept-Encoding the same asset falls back to gzip.
+    _, gz_headers, gz_body = call(
+        app, "/static/js/index.abc.js", headers=[(b"accept-encoding", b"gzip")]
+    )
+    assert gz_headers[b"content-encoding"] == b"gzip"
+    assert gzip.decompress(gz_body) == BUNDLE
+
+
+def test_brotli_lookup_stays_inside_the_static_root(tmp_path: Path) -> None:
+    root = brotli_root(tmp_path / "root")
+    (tmp_path / "secret.js.br").write_bytes(b"outside")
+    app = server.FrontendMiddleware(FakeStreamlit(), static_root=root)
+    _, headers, body = call(app, "/static/../../secret.js", headers=GZIP)
+    assert headers.get(b"content-encoding") != b"br"
+    assert b"outside" not in body
+
+
+def test_unused_font_preload_is_dropped() -> None:
+    page = (
+        b'<html><head>\n<link\n  rel="preload"\n  href="./static/media/SourceSansVF-Upright.woff2"'
+        b'\n  as="font"\n  crossorigin\n/>\n<title>Streamlit</title></head></html>'
+    )
+    text = server.rewrite_document(page).decode()
+    assert "SourceSans" not in text
+    assert "<title>Momentum" in text
+
+
+@pytest.mark.parametrize(
+    ("value", "coding", "expected"),
+    [
+        (b"gzip, deflate, br", b"br", True),
+        (b"gzip;q=0.8", b"gzip", True),
+        (b"br;q=0, gzip", b"br", False),
+        (b"identity", b"gzip", False),
+    ],
+)
+def test_accepts(value: bytes, coding: bytes, expected: bool) -> None:
+    scope = {"headers": [(b"accept-encoding", value)]}
+    assert server.accepts(scope, coding) is expected
+
+
+def test_precompress_script_writes_smaller_brotli_copies(tmp_path: Path) -> None:
+    import importlib.util
+
+    import brotli
+
+    spec = importlib.util.spec_from_file_location(
+        "precompress", ROOT / "scripts" / "precompress.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    (tmp_path / "js").mkdir()
+    (tmp_path / "js" / "big.js").write_bytes(BUNDLE)
+    (tmp_path / "js" / "tiny.js").write_bytes(b"x")
+    (tmp_path / "font.woff2").write_bytes(b"\x00" * 4096)
+    files, raw, encoded = module.precompress(tmp_path, quality=5)
+    assert files == 1
+    assert encoded < raw
+    assert brotli.decompress((tmp_path / "js" / "big.js.br").read_bytes()) == BUNDLE
+    assert not (tmp_path / "js" / "tiny.js.br").exists()
+    assert not (tmp_path / "font.woff2.br").exists()

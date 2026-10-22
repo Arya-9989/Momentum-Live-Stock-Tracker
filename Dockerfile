@@ -23,6 +23,16 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
+# Brotli copies of Streamlit's frontend bundle, served by momentum.server to
+# browsers that accept br. Quality 11 is too slow per request but fine here.
+# brotli lives in a throwaway build venv, never in the runtime image.
+COPY scripts/precompress.py ./scripts/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_PROJECT_ENVIRONMENT=/opt/build-venv \
+    uv sync --locked --only-group precompress --no-install-project \
+    && /opt/build-venv/bin/python scripts/precompress.py \
+       "$(/opt/venv/bin/python -c 'import pathlib, streamlit; print(pathlib.Path(streamlit.__file__).parent / "static")')"
+
 # ---------------------------------------------------------------- runtime stage
 FROM python:3.12.15-slim
 

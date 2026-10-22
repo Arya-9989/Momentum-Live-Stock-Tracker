@@ -12,5 +12,6 @@ htmlcov
 docs
 tests
 scripts
+!scripts/precompress.py
 Dockerfile
 .dockerignore

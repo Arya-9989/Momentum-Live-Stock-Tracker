@@ -4,20 +4,24 @@ Streamlit 1.66 leaves a few things a public page needs to the host:
 
 * It serves its frontend bundle under ``/static/`` **uncompressed** (it bypasses
   gzip there on purpose, to save CPU per request), so a first visit downloads
-  4.6 MB of JavaScript for Plotly and the grid.
+  4.6 MB of JavaScript for Plotly alone.
 * It answers ``/robots.txt`` with ``index.html`` (the SPA fallback), and the
-  document has the generic title "Streamlit" and no description.
+  document has the generic title "Streamlit", no description, and a preload for
+  the Source Sans font, which this app's theme (Inter) never uses.
 * Its first paint is a centred ("narrow") shell that turns wide when the page
   config arrives, which moves the empty main container (a ~0.02 layout shift).
 
 ``st.App`` (Streamlit's ASGI entry point) accepts extra routes and middleware,
 so this module fixes all of that in-process, without a reverse proxy:
 
-* ``FrontendMiddleware`` gzips ``/static/`` assets once per process (they are
-  content-hashed and immutable, so the compressed bytes are cached by path and
-  ETag, and compression runs in a worker thread, off the event loop), and it
-  rewrites the HTML document: title, description and one critical CSS rule
-  that keeps the main block hidden until the wide layout applies.
+* ``FrontendMiddleware`` compresses ``/static/`` assets. If the image build left a
+  brotli file beside an asset (``scripts/precompress.py``), browsers that accept
+  ``br`` get it; otherwise the asset is gzipped once per process. Assets are
+  content-hashed and immutable, so the encoded bytes are cached by path and
+  ETag, and gzip runs in a worker thread, off the event loop.
+* It rewrites the HTML document: title, description, no unused font preload,
+  and one critical CSS rule that keeps the main block hidden until the wide
+  layout applies.
 * ``ROUTES`` adds a real ``robots.txt``.
 
 Everything here is plain ASGI and is unit-tested without a server.
@@ -29,6 +33,7 @@ import gzip
 import html
 import re
 from collections.abc import Awaitable, Callable, MutableMapping
+from pathlib import Path
 from typing import Any, Final
 
 import anyio.to_thread
@@ -63,6 +68,13 @@ _COMPRESSIBLE: Final = re.compile(
 _PASS_THROUGH: Final = ("/_stcore/", "/media/", "/component/", "/app/")
 _MIN_SIZE: Final = 1024
 _GZIP_LEVEL: Final = 9  # paid once per asset per process; the bytes are cached
+_UNUSED_PRELOAD: Final = re.compile(r"<link\b[^>]*rel=\"preload\"[^>]*SourceSans[^>]*>\s*", re.S)
+
+
+def _streamlit_static_root() -> Path:
+    import streamlit
+
+    return Path(streamlit.__file__).parent / "static"
 
 
 def head_tags() -> str:
@@ -74,8 +86,9 @@ def head_tags() -> str:
 
 
 def rewrite_document(body: bytes) -> bytes:
-    """Give Streamlit's index.html a real title, a description and the critical CSS."""
-    text = body.decode("utf-8")
+    """Give Streamlit's index.html a real title, a description and the critical CSS,
+    and drop the preload of a font the theme never uses."""
+    text = _UNUSED_PRELOAD.sub("", body.decode("utf-8"))
     title = f"<title>{html.escape(TITLE)}</title>"
     text, replaced = re.subn(r"<title>.*?</title>", title, text, count=1, flags=re.S)
     tags = head_tags() if replaced else title + head_tags()
@@ -88,25 +101,33 @@ def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None:
     return next((value for key, value in headers if key.lower() == name), None)
 
 
-def _accepts_gzip(scope: Scope) -> bool:
+def accepts(scope: Scope, coding: bytes) -> bool:
+    """Whether the request's Accept-Encoding allows ``coding`` (``q=0`` refuses it)."""
     raw = _header(list(scope.get("headers", [])), b"accept-encoding") or b""
-    return any(
-        part.split(b";")[0].strip() == b"gzip" and b"q=0" not in part.replace(b" ", b"")
-        for part in raw.lower().split(b",")
-    )
+    for part in raw.lower().split(b","):
+        name, _, params = part.strip().partition(b";")
+        if name.strip() == coding:
+            return params.replace(b" ", b"") not in {b"q=0", b"q=0.0", b"q=0.00", b"q=0.000"}
+    return False
 
 
 class FrontendMiddleware:
     """Compress Streamlit's static assets and polish its HTML document."""
 
-    def __init__(self, app: ASGIApp, static_prefix: str = "/static/") -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        static_prefix: str = "/static/",
+        static_root: Path | None = None,
+    ) -> None:
         self.app = app
         self.static_prefix = static_prefix
-        self._cache: dict[tuple[str, bytes], bytes] = {}
+        self.static_root = static_root or _streamlit_static_root()
+        self._cache: dict[tuple[str, bytes, bytes], bytes | None] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # HEAD and other methods pass through: a HEAD body is empty, so there is
-        # nothing to rewrite or compress (and its Content-Length must stay as sent).
+        # Only GET is rewritten: a HEAD body is empty, so there is nothing to
+        # compress (and its Content-Length must stay as Streamlit sent it).
         if scope["type"] != "http" or scope.get("method") != "GET":
             await self.app(scope, receive, send)
             return
@@ -134,47 +155,73 @@ class FrontendMiddleware:
         body = b"".join(chunks)
         content_type = (_header(headers, b"content-type") or b"").decode("latin-1")
         status = int(start.get("status", 500))
+        if status != 200:
+            await send(start)
+            await send({"type": "http.response.body", "body": body, "more_body": False})
+            return
 
-        if status == 200 and content_type.startswith("text/html"):
+        if content_type.startswith("text/html"):
             body = rewrite_document(body)
-        encoded = None
+        coding, encoded = None, None
         if (
-            status == 200
-            and _accepts_gzip(scope)
-            and _header(headers, b"content-encoding") is None
+            _header(headers, b"content-encoding") is None
             and _COMPRESSIBLE.match(content_type)
             and len(body) >= _MIN_SIZE
         ):
-            encoded = await self._gzip(scope["path"], headers, body, cache=static)
-        if encoded is not None:
+            coding, encoded = await self._encode(scope, headers, body, static=static)
+        headers = [(k, v) for k, v in headers if k.lower() != b"content-length"]
+        if coding is not None and encoded is not None:
             body = encoded
-            headers = [(k, v) for k, v in headers if k.lower() not in {b"content-length", b"etag"}]
+            headers = [(k, v) for k, v in headers if k.lower() != b"etag"]
             etag = _header(list(start.get("headers", [])), b"etag")
             if etag:
                 # A different representation needs its own (weak) validator.
                 bare = etag.removeprefix(b"W/").strip(b'"')
-                headers.append((b"etag", b'W/"' + bare + b'-gzip"'))
-            headers += [(b"content-encoding", b"gzip"), (b"vary", b"Accept-Encoding")]
-        elif status == 200:
-            headers = [(k, v) for k, v in headers if k.lower() != b"content-length"]
-        if status == 200:
-            headers.append((b"content-length", str(len(body)).encode()))
+                headers.append((b"etag", b'W/"' + bare + b"-" + coding + b'"'))
+            headers += [(b"content-encoding", coding), (b"vary", b"Accept-Encoding")]
+        headers.append((b"content-length", str(len(body)).encode()))
         await send({**start, "headers": headers})
         await send({"type": "http.response.body", "body": body, "more_body": False})
 
-    async def _gzip(
-        self, path: str, headers: list[tuple[bytes, bytes]], body: bytes, *, cache: bool
-    ) -> bytes:
-        key = (path, _header(headers, b"etag") or b"")
-        if cache and key in self._cache:
-            return self._cache[key]
+    async def _encode(
+        self, scope: Scope, headers: list[tuple[bytes, bytes]], body: bytes, *, static: bool
+    ) -> tuple[bytes | None, bytes | None]:
+        path: str = scope["path"]
+        etag = _header(headers, b"etag") or b""
+        if static and accepts(scope, b"br"):
+            brotli = self._precompressed(path, etag)
+            if brotli is not None:
+                return b"br", brotli
+        if not accepts(scope, b"gzip"):
+            return None, None
+        key = (path, etag, b"gzip")
+        cached = self._cache.get(key) if static else None
+        if cached is not None:
+            return b"gzip", cached
         # mtime=0 keeps the output byte-identical between runs (stable ETags).
         encoded: bytes = await anyio.to_thread.run_sync(
             lambda: gzip.compress(body, compresslevel=_GZIP_LEVEL, mtime=0)
         )
-        if cache:
+        if static:
             self._cache[key] = encoded
-        return encoded
+        return b"gzip", encoded
+
+    def _precompressed(self, path: str, etag: bytes) -> bytes | None:
+        """The build-time ``.br`` file beside a static asset, if there is one.
+
+        Only called after Streamlit itself answered 200 for ``path``, and the
+        resolved file must stay inside the static root.
+        """
+        key = (path, etag, b"br")
+        if key not in self._cache:
+            root = self.static_root.resolve()
+            candidate = (root / path.lstrip("/")).resolve()
+            brotli_file = candidate.with_name(candidate.name + ".br")
+            inside = candidate.is_relative_to(root)
+            self._cache[key] = (
+                brotli_file.read_bytes() if inside and brotli_file.is_file() else None
+            )
+        return self._cache[key]
 
 
 async def robots(_: Request) -> PlainTextResponse:
