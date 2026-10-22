@@ -1,0 +1,55 @@
+# Streamlit configuration. Read locally, in Docker and on Streamlit Community Cloud.
+
+[server]
+headless = true
+runOnSave = false
+maxUploadSize = 1
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = "none"
+
+# ---------------------------------------------------------------- theme
+# Shared typography and shape; colours are defined per mode below so the app
+# follows the viewer's light/dark preference.
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+headingFontWeights = [700, 650, 600, 600, 600, 600]
+codeFont = "monospace"
+baseRadius = "0.6rem"
+buttonRadius = "0.5rem"
+showWidgetBorder = true
+showSidebarBorder = true
+greenColor = "#16a34a"
+redColor = "#dc2626"
+chartCategoricalColors = ["#4f46e5", "#0891b2", "#ea580c", "#db2777", "#65a30d", "#9333ea"]
+
+[theme.light]
+primaryColor = "#4f46e5"
+backgroundColor = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f172a"
+borderColor = "#e2e8f0"
+dataframeBorderColor = "#e2e8f0"
+dataframeHeaderBackgroundColor = "#f1f5f9"
+
+[theme.light.sidebar]
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f5f9"
+
+[theme.dark]
+primaryColor = "#818cf8"
+backgroundColor = "#0b1120"
+secondaryBackgroundColor = "#111827"
+textColor = "#e2e8f0"
+borderColor = "#1f2937"
+dataframeBorderColor = "#1f2937"
+dataframeHeaderBackgroundColor = "#111827"
+
+[theme.dark.sidebar]
+backgroundColor = "#0f172a"
+secondaryBackgroundColor = "#1e293b"

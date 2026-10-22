@@ -1,0 +1,77 @@
+/*
+ * Light-touch styling on top of the Streamlit theme in .streamlit/config.toml.
+ * Colours are either the theme's own (inherited) or translucent, so every rule
+ * reads correctly in both the light and the dark theme.
+ */
+
+.block-container {
+  padding-top: 2.2rem;
+  padding-bottom: 3rem;
+  max-width: 1440px;
+}
+
+/* ------------------------------------------------------------ header */
+.mm-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: 0.75rem 2rem; margin-bottom: 0.25rem; }
+.mm-eyebrow { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
+  opacity: 0.6; font-weight: 600; margin-bottom: 0.15rem; }
+.mm-title { font-size: 1.85rem; font-weight: 700; line-height: 1.15; margin: 0; }
+.mm-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.mm-chip { font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16); white-space: nowrap; }
+.mm-chip.live { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
+.mm-chip.demo { background: rgba(234, 88, 12, 0.14); color: #ea580c; }
+.mm-price { text-align: right; }
+.mm-price .value { font-size: 2.1rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  line-height: 1.1; }
+.mm-price .delta { font-size: 0.95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mm-price .asof { font-size: 0.75rem; opacity: 0.6; margin-top: 0.15rem; }
+.mm-up { color: #16a34a; }
+.mm-down { color: #dc2626; }
+
+.mm-section { font-size: 1.05rem; font-weight: 650; margin: 0.1rem 0 0.4rem; }
+
+/* ------------------------------------------------------------ metric cards */
+[data-testid="stMetric"] { padding: 0.85rem 1rem; }
+[data-testid="stMetricLabel"] p { font-size: 0.78rem; text-transform: uppercase;
+  letter-spacing: 0.05em; font-weight: 600; opacity: 0.7; }
+[data-testid="stMetricValue"] { font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------ key stats grid */
+.mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.5rem; }
+.mm-stat { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18); font-size: 0.88rem; }
+.mm-stat span:first-child { opacity: 0.65; }
+.mm-stat span:last-child { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ------------------------------------------------------------ range bars */
+.mm-range { margin: 0.35rem 0 0.9rem; }
+.mm-range-head { display: flex; justify-content: space-between; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; opacity: 0.7; }
+.mm-range-track { position: relative; height: 6px; border-radius: 999px; margin: 0.45rem 0 0.3rem;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.45), rgba(148, 163, 184, 0.35),
+  rgba(22, 163, 74, 0.45)); }
+.mm-range-dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%); background: #4f46e5; border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35); }
+.mm-range-foot { display: flex; justify-content: space-between; font-size: 0.82rem;
+  font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------ profile */
+.mm-profile p { font-size: 0.9rem; line-height: 1.6; opacity: 0.9; }
+.mm-profile a { text-decoration: none; }
+
+/* ------------------------------------------------------------ small screens */
+@media (max-width: 640px) {
+  .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 3.5rem; }
+  /* KPI cards two-up instead of one per row */
+  .st-key-kpi_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 0.6rem; }
+  .st-key-kpi_row [data-testid="stColumn"] { flex: 1 1 calc(50% - 0.6rem) !important;
+    min-width: calc(50% - 0.6rem) !important; width: calc(50% - 0.6rem) !important; }
+  [data-testid="stMetric"] { padding: 0.65rem 0.75rem; }
+  .mm-title { font-size: 1.4rem; }
+  .mm-price { text-align: left; }
+  .mm-price .value { font-size: 1.7rem; }
+  .mm-stats { grid-template-columns: minmax(0, 1fr); }
+  [data-testid="stMetricValue"] { font-size: 1.25rem; }
+}
