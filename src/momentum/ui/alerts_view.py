@@ -312,6 +312,12 @@ def _send_test(who: Identity, channel: Channel) -> None:
 # --------------------------------------------------------------------------- view
 
 
+def panel(copy: messages.Copy, *, height: int = 160, key: str = "feature_panel") -> None:
+    """An empty or error state in a slot of its own height (no shift while it loads)."""
+    with st.container(key=key, height=height, border=False):
+        components.error_panel(copy, height=height)
+
+
 def subsection_html(title: str, detail: str | None = None) -> str:
     """Geometry is inline, like the page title's, so it is right from the first paint
     (features.css arrives with the first st.html element and can come later)."""
@@ -339,11 +345,11 @@ def alerts(raw_symbol: str, demo: bool, who: Identity) -> None:
         "Get a notification when a price or an indicator crosses a level. Checked every minute.",
     )
     if who.owner is None:
-        components.error_panel(NO_IDENTITY, height=160)
+        panel(NO_IDENTITY)
         return
     repo = _repo()
     if repo is None:
-        components.error_panel(UNAVAILABLE, height=160)
+        panel(UNAVAILABLE)
         return
     try:
         saved = repo.for_owner(who.owner)
@@ -353,7 +359,7 @@ def alerts(raw_symbol: str, demo: bool, who: Identity) -> None:
             channels = repo.channels(who.owner)
         recent = repo.events(who.owner, limit=10)
     except StoreError:
-        components.error_panel(UNAVAILABLE, height=160)
+        panel(UNAVAILABLE)
         return
 
     _create_form(

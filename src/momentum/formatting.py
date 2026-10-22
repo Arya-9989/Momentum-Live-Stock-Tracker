@@ -235,3 +235,11 @@ def format_quantity(value: float | None) -> str:
     if float(value).is_integer():
         return f"{value:,.0f}"
     return f"{value:,.8f}".rstrip("0").rstrip(".")
+
+
+def format_compact_money(value: float | None, currency: str | None) -> str:
+    """Large signed amounts for statements: ``$416.16B``, ``-₹1.20B`` (losses keep their sign)."""
+    if value is None or math.isnan(value):
+        return PLACEHOLDER
+    sign = "-" if value < 0 else ""
+    return f"{sign}{currency_symbol(currency)}{format_compact(abs(value))}"

@@ -78,3 +78,51 @@
   .mm-pvalue { font-size: 36px; line-height: 44px; }
   .mm-pstat dd { font-size: 15px; line-height: 20px; }
 }
+
+/* ---------------------------------------------------------------- fundamentals */
+.mm-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.mm-fstats .mm-pstat dt { font-size: 13px; line-height: 18px; color: var(--mm-secondary); }
+.mm-fstats .mm-pstat dd.mm-num {
+  font-size: 24px; line-height: 30px; font-weight: 600; color: var(--mm-ink); letter-spacing: -0.01em;
+}
+.mm-fstats .mm-pstat dd.mm-fnote { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--mm-secondary); }
+.mm-ftable table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.mm-ftable th, .mm-ftable td {
+  height: 44px; padding: 0 12px; border-bottom: 1px solid var(--mm-hairline);
+  font-size: 15px; line-height: 20px; white-space: nowrap;
+}
+.mm-ftable thead th { color: var(--mm-secondary); font-size: 13px; font-weight: 500; text-align: right; }
+.mm-ftable thead th:first-child, .mm-ftable tbody th { text-align: left; padding-left: 0; }
+.mm-ftable tbody th { color: var(--mm-ink); font-weight: 500; }
+.mm-ftable td { text-align: right; color: var(--mm-ink); }
+.mm-ftable tr.mm-ratio th, .mm-ftable tr.mm-ratio td { color: var(--mm-secondary); font-weight: 400; }
+.mm-fdivs table { max-width: 420px; }
+
+/* ---------------------------------------------------------------- controls */
+/* The new views' segmented controls look like the range control (styles.css). */
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radiogroup"] {
+  padding: 3px; border-radius: 10px; background: var(--mm-fill); flex-wrap: nowrap;
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] {
+  padding: 4px 12px; border-color: transparent !important; border-radius: 8px !important;
+  background: transparent; color: var(--mm-ink); box-shadow: none;
+  transition: background-color 180ms var(--mm-ease);
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] p { color: var(--mm-ink); }
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"]:hover { background: var(--mm-fill-hover); }
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"],
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"]:is(:hover, :focus, :active) {
+  background: var(--mm-raised) !important; color: var(--mm-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06) !important;
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"] p { color: var(--mm-ink); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] { transition: none; }
+}
+
+/* Six tabs overflow a phone: the list scrolls sideways, and Streamlit's 20px
+   scroll buttons are widened to a valid touch target (WCAG 2.5.8). */
+:is([data-testid="stTabsScrollLeft"], [data-testid="stTabsScrollRight"]) { min-width: 28px; }

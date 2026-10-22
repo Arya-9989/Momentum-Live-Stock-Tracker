@@ -20,10 +20,19 @@ from momentum import config, data
 from momentum.alerts import worker
 from momentum.data import DataError
 from momentum.theme import get_theme
-from momentum.ui import alerts_view, components, portfolio_view, saved, session, styling, views
+from momentum.ui import (
+    alerts_view,
+    components,
+    fundamentals_view,
+    portfolio_view,
+    saved,
+    session,
+    styling,
+    views,
+)
 from momentum.ui.rail import rail_height
 
-TABS = ("Overview", "Compare", "Watchlist", "Portfolio", "Alerts")
+TABS = ("Overview", "Fundamentals", "Compare", "Watchlist", "Portfolio", "Alerts")
 RAIL_WIDTH = 320
 SEARCH_WIDTH = 200  # wordmark + field fit one row at 390 px
 FIRST_PAINT_PAUSE_S = 0.12
@@ -155,12 +164,15 @@ def main() -> None:
     with main_column:
         if demo:
             components.demo_notice()
-        overview_tab, compare_tab, watch_tab, portfolio_tab, alerts_tab = st.tabs(
+        overview_tab, fundamentals_tab, compare_tab, watch_tab, portfolio_tab, alerts_tab = st.tabs(
             list(TABS), key="view", on_change="rerun", bind="query-params"
         )
         if overview_tab.open is not False:
             with overview_tab:
                 views.overview(raw_symbol or "", demo, theme, first_run=first_run)
+        if fundamentals_tab.open:
+            with fundamentals_tab:
+                fundamentals_view.fundamentals(raw_symbol or "", demo)
         if compare_tab.open:
             with compare_tab:
                 views.compare(

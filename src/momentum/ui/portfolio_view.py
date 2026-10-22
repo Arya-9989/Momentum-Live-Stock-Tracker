@@ -318,16 +318,16 @@ def portfolio(raw_symbol: str, demo: bool, who: Identity, theme: Theme = LIGHT) 
         "instrument's own currency.",
     )
     if who.owner is None:
-        components.error_panel(NO_IDENTITY, height=160)
+        alerts_view.panel(NO_IDENTITY)
         return
     repo = _repo()
     if repo is None:
-        components.error_panel(UNAVAILABLE, height=160)
+        alerts_view.panel(UNAVAILABLE)
         return
     try:
         transactions = repo.transactions(who.owner)
     except StoreError:
-        components.error_panel(UNAVAILABLE, height=160)
+        alerts_view.panel(UNAVAILABLE)
         return
 
     positions = pf.build(transactions)
@@ -347,7 +347,7 @@ def portfolio(raw_symbol: str, demo: bool, who: Identity, theme: Theme = LIGHT) 
 
 def _summary(totals: list[pf.Totals], demo: bool) -> None:
     if not totals:
-        components.error_panel(EMPTY, height=HERO_HEIGHT)
+        alerts_view.panel(EMPTY, height=HERO_HEIGHT)
         return
     currencies = [t.currency for t in totals]
     options = [EACH, *dict.fromkeys([*currencies, *TARGETS])] if len(totals) > 1 else currencies

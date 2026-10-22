@@ -59,6 +59,13 @@ is an illustration and shows no market data.</sub>
   instead.
 - **Key statistics** with day and 52-week range bars, plus a company profile (sector, industry,
   employees, website, business summary).
+- **Fundamentals** for the symbol in view: revenue, gross and operating income, net income and
+  diluted EPS, plus total assets, liabilities, equity, cash and debt, for the last four years or
+  five quarters. Gross and net margins are derived, along with the dividend history, trailing
+  twelve-month dividend and yield. Figures are shown in the currency the company *reports* in,
+  which can differ from the one it trades in (TSMC reports in TWD, Vodafone in EUR), and the page
+  says which. Lines a company doesn't report read "—", and indices, FX and crypto get one sentence
+  instead of an empty table. Statements are cached for a day.
 - **Compare** up to six symbols as cumulative % return, each rebased to 0% at its first bar in
   the range, with up to four lines labelled at their end, and return, volatility and
   max-drawdown columns.
@@ -456,7 +463,6 @@ advice.**
 These features are not implemented yet:
 
 - A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.
-- Fundamentals tab (income statement, balance sheet, dividends).
 
 ## License
 
