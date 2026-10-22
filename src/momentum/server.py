@@ -22,7 +22,8 @@ so this module fixes all of that in-process, without a reverse proxy:
 * It rewrites the HTML document: title, description, no unused font preload,
   and one critical CSS rule that keeps the main block hidden until the wide
   layout applies.
-* ``ROUTES`` adds a real ``robots.txt``.
+* ``ROUTES`` adds a real ``robots.txt`` and ``/readyz`` (database reachable and
+  migrated, alert loop running when it should be).
 
 Everything here is plain ASGI and is unit-tested without a server.
 """
@@ -40,7 +41,7 @@ from typing import Any, Final
 import anyio.to_thread
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 from streamlit.runtime.secrets import SecretsValue
 
@@ -232,7 +233,47 @@ async def robots(_: Request) -> PlainTextResponse:
     return PlainTextResponse(ROBOTS_TXT, headers={"Cache-Control": "public, max-age=86400"})
 
 
-ROUTES: Final = [Route("/robots.txt", robots, methods=["GET", "HEAD"])]
+def readiness() -> tuple[bool, dict[str, Any]]:
+    """Whether this process can serve saved data: the database answers and its
+    schema is fully migrated. Also reports the alert loop's mode and state."""
+    from momentum import settings as settings_mod
+    from momentum import store
+    from momentum.alerts import worker
+    from momentum.store.schema import current_version, load_migrations
+
+    config = settings_mod.load()
+    loop = worker._running.get("worker")
+    report: dict[str, Any] = {
+        "alert_worker": config.alert_worker,
+        "alert_worker_running": bool(loop and loop.running),
+    }
+    try:
+        db = store.get_store(config).db
+        version = current_version(db)
+        expected = len(load_migrations(db.dialect))
+    except (store.StoreError, OSError, ValueError) as exc:
+        return False, report | {"status": "unavailable", "database": type(exc).__name__}
+    report |= {"database": db.dialect, "schema": version, "schema_expected": expected}
+    if version != expected:
+        return False, report | {"status": "migrating"}
+    if config.alert_worker == "auto" and not report["alert_worker_running"]:
+        return False, report | {"status": "alert worker not running"}
+    return True, report | {"status": "ready"}
+
+
+async def ready(_: Request) -> JSONResponse:
+    """``/readyz`` for orchestrators (``/_stcore/health`` only says the process is up).
+    No secrets or data in the body; 503 until the database is reachable and migrated."""
+    ok, report = await anyio.to_thread.run_sync(readiness)
+    return JSONResponse(
+        report, status_code=200 if ok else 503, headers={"Cache-Control": "no-store"}
+    )
+
+
+ROUTES: Final = [
+    Route("/robots.txt", robots, methods=["GET", "HEAD"]),
+    Route("/readyz", ready, methods=["GET"]),
+]
 # The device cookie is outermost, so it sees the final document response.
 MIDDLEWARE: Final = [Middleware(DeviceCookieMiddleware), Middleware(FrontendMiddleware)]
 

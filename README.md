@@ -102,6 +102,17 @@ is an illustration and shows no market data.</sub>
   request, labelled as such. Arithmetic is exact `Decimal`. FIFO is what US brokers default to and
   what Indian rules apply; UK pooling and Canadian ACB use average cost, so realized figures there
   will differ ([ADR 0003](docs/adr/0003-portfolio-cost-basis.md)).
+- **Your data.** Anyone with saved data finds *Your data* under the watchlist. It offers a JSON
+  download of everything Momentum keeps for them: watchlist, alerts, delivery settings,
+  notifications and portfolio. Webhook secrets are left out. It also offers a confirmed **delete**
+  that erases all of it in one transaction. Deleting selected portfolio transactions also asks
+  first.
+- **Operations.** `/readyz` answers 200 only when the database is reachable and migrated, and the
+  alert loop is running when it should be; `/_stcore/health` still says the process is up.
+  Sensitive actions emit one JSON audit line each on stderr (`momentum.audit`): alerts created or
+  deleted, webhook changes (host only), test deliveries, data exported or deleted, and
+  transactions deleted. Owners appear as pseudonymous references, never as ids, addresses or
+  secrets.
 - **CSV export** of the visible prices plus indicators, the comparison, the watchlist, and the
   portfolio's holdings and transactions, at full precision.
 - **A second data provider (optional).** With your own Alpha Vantage key, Momentum falls back to

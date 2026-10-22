@@ -111,11 +111,21 @@ def test_delete_selected_rows(monkeypatch: pytest.MonkeyPatch) -> None:
 
     state: dict[str, object] = {"pf_transactions": Selection([1])}  # the buy (oldest last)
     monkeypatch.setattr(streamlit, "session_state", state)
-    portfolio_view._delete_selected(ALICE, [sale.id, buy.id])
+    portfolio_view._ask_to_delete([sale.id, buy.id])
+    assert state[portfolio_view.CONFIRM_KEY] == [buy.id]  # asks first; nothing deleted yet
+    assert len(repo.transactions(owner)) == 2
+    portfolio_view._delete_confirmed(ALICE)
     assert "would break a later sale" in str(state[portfolio_view.NOTICE_KEY])
     state["pf_transactions"] = Selection([0, 1])  # both: the sale goes first
-    portfolio_view._delete_selected(ALICE, [sale.id, buy.id])
+    portfolio_view._ask_to_delete([sale.id, buy.id])
+    portfolio_view._cancel_delete()
+    assert portfolio_view.CONFIRM_KEY not in state
+    portfolio_view._ask_to_delete([sale.id, buy.id])
+    portfolio_view._delete_confirmed(ALICE)
     assert state[portfolio_view.NOTICE_KEY] == "Deleted 2 transactions."
+    state["pf_transactions"] = Selection([])
+    portfolio_view._ask_to_delete([])
+    assert state[portfolio_view.NOTICE_KEY] == "Select the transactions to delete first."
     assert repo.transactions(owner) == []
 
 

@@ -177,11 +177,13 @@ jobs:
           "
 
       - name: Production HTTP layer
-        # serve.py: real robots.txt and title, gzip for the static bundle, and the
-        # signed HttpOnly device cookie on the document.
+        # serve.py: real robots.txt and title, /readyz (database migrated, alert loop
+        # running), gzip for the static bundle, and the signed HttpOnly device cookie.
         run: |
           robots="$(curl --fail --silent http://localhost:8501/robots.txt)"
           grep -q "User-agent: \*" <<< "$robots"
+          ready="$(curl --fail --silent http://localhost:8501/readyz)"
+          grep -q '"status":"ready"' <<< "$ready"
           document="$(curl --fail --silent -D - -o /dev/null http://localhost:8501/)"
           grep -qi "set-cookie: momentum_device=v1\..*HttpOnly; SameSite=Lax" <<< "$document"
           page="$(curl --fail --silent http://localhost:8501/)"

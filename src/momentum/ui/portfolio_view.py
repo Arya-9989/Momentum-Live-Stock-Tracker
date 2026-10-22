@@ -17,7 +17,7 @@ from typing import Final
 import pandas as pd
 import streamlit as st
 
-from momentum import data
+from momentum import audit, data
 from momentum import formatting as fmt
 from momentum import portfolio as pf
 from momentum.data import DataError
@@ -30,6 +30,7 @@ from momentum.ui import alerts_view, components, messages, session
 logger = logging.getLogger(__name__)
 
 NOTICE_KEY: Final = "_portfolio_notice"
+CONFIRM_KEY: Final = "_portfolio_confirm_delete"
 EACH: Final = "Each currency"
 TARGETS: Final = ("USD", "EUR", "GBP", "INR", "JPY")
 ROW_HEIGHT: Final = 68
@@ -290,13 +291,26 @@ def _add(who: Identity, demo: bool) -> None:
     )
 
 
-def _delete_selected(who: Identity, ids: Sequence[str]) -> None:
-    repo = _repo()
+def _ask_to_delete(ids: Sequence[str]) -> None:
+    """First step: remember the selected transactions and ask for confirmation."""
     state = st.session_state.get("pf_transactions")
     rows = state.selection.rows if state is not None else []
-    if repo is None or who.owner is None or not rows:
-        return
     chosen = [ids[row] for row in rows if 0 <= row < len(ids)]
+    if chosen:
+        st.session_state[CONFIRM_KEY] = chosen
+    else:
+        st.session_state[NOTICE_KEY] = "Select the transactions to delete first."
+
+
+def _cancel_delete() -> None:
+    st.session_state.pop(CONFIRM_KEY, None)
+
+
+def _delete_confirmed(who: Identity) -> None:
+    repo = _repo()
+    chosen = list(st.session_state.pop(CONFIRM_KEY, None) or [])
+    if repo is None or who.owner is None or not chosen:
+        return
     try:
         deleted = repo.delete_many(who.owner, chosen)
     except pf.PortfolioError as exc:
@@ -305,6 +319,7 @@ def _delete_selected(who: Identity, ids: Sequence[str]) -> None:
     except StoreError:
         st.session_state[NOTICE_KEY] = UNAVAILABLE.title
         return
+    audit.record("portfolio.transactions_deleted", who.owner, count=deleted)
     st.session_state[NOTICE_KEY] = f"Deleted {deleted} transaction{'s' if deleted != 1 else ''}."
 
 
@@ -528,13 +543,26 @@ def _transactions(transactions: list[pf.Transaction], who: Identity) -> None:
             "Fees": st.column_config.TextColumn(alignment="right"),
         },
     )
+    pending = st.session_state.get(CONFIRM_KEY)
+    if pending:
+        count = len(pending)
+        with st.container(
+            key="pf_confirm", horizontal=True, vertical_alignment="center", gap="small"
+        ):
+            components.fineprint(
+                f"Delete {count} transaction{'s' if count != 1 else ''}? This can't be undone.",
+                width="content",
+            )
+            st.button("Delete", key="pf_delete_confirm", type="primary",
+                      on_click=_delete_confirmed, args=(who,))  # fmt: skip
+            st.button("Cancel", key="pf_delete_cancel", type="tertiary", on_click=_cancel_delete)
     with st.container(horizontal=True, gap="small"):
         st.button(
             "Delete selected",
             key="pf_delete",
             type="tertiary",
-            on_click=_delete_selected,
-            args=(who, ids),
+            on_click=_ask_to_delete,
+            args=(ids,),
         )
         components.csv_download(
             shown, "transactions.csv", "Download transactions (CSV)", key="dl_transactions"

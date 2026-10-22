@@ -14,10 +14,11 @@ from datetime import UTC, datetime
 from functools import partial
 from html import escape
 from typing import Final
+from urllib.parse import urlsplit
 
 import streamlit as st
 
-from momentum import config, data
+from momentum import audit, config, data
 from momentum import formatting as fmt
 from momentum.alerts import delivery, engine, rules
 from momentum.data import DataError
@@ -235,6 +236,7 @@ def _create(who: Identity, demo: bool, currency: str | None, quote_type: str | N
         logger.warning("Could not create an alert: %r", exc)
         st.session_state[NOTICE_KEY] = UNAVAILABLE.title
         return
+    audit.record("alert.created", who.owner, symbol=alert.symbol, condition=alert.condition)
     st.session_state[NOTICE_KEY] = f"Alert created: {alert.symbol} {engine.describe(alert)}."
 
 
@@ -253,7 +255,8 @@ def _delete(who: Identity, alert_id: str) -> None:
     if repo is None or who.owner is None:
         return
     try:
-        repo.delete(who.owner, alert_id)
+        if repo.delete(who.owner, alert_id):
+            audit.record("alert.deleted", who.owner)
     except StoreError:
         st.session_state[NOTICE_KEY] = UNAVAILABLE.title
 
@@ -282,6 +285,7 @@ def _save_webhook(who: Identity) -> None:
     except StoreError:
         st.session_state[NOTICE_KEY] = UNAVAILABLE.title
         return
+    audit.record("webhook.saved", who.owner, host=urlsplit(url).hostname)
     st.session_state[NOTICE_KEY] = "Webhook saved. Copy the signing secret below now."
 
 
@@ -290,6 +294,7 @@ def _rotate_secret(who: Identity) -> None:
     if repo is not None and who.owner is not None:
         secret = repo.rotate_webhook_secret(who.owner)
         if secret:
+            audit.record("webhook.secret_rotated", who.owner)
             st.session_state[SECRET_KEY] = secret
             st.session_state[NOTICE_KEY] = "New signing secret created; the old one stops working."
 
@@ -298,6 +303,7 @@ def _remove_webhook(who: Identity) -> None:
     repo = _repo()
     if repo is not None and who.owner is not None:
         repo.remove_webhook(who.owner)
+        audit.record("webhook.removed", who.owner)
         st.session_state.pop(SECRET_KEY, None)
         st.session_state[NOTICE_KEY] = "Webhook removed."
 
@@ -306,6 +312,7 @@ def _send_test(who: Identity, channel: Channel) -> None:
     repo = _repo()
     if repo is not None and who.owner is not None:
         repo.send_test(who.owner, channel)
+        audit.record("delivery.test_queued", who.owner, channel=channel)
         st.session_state[NOTICE_KEY] = f"Test {channel} queued; it is sent within a minute."
 
 

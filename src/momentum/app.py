@@ -19,10 +19,12 @@ from streamlit.delta_generator import DeltaGenerator
 from momentum import config, data
 from momentum.alerts import worker
 from momentum.data import DataError
+from momentum.identity import Identity
 from momentum.theme import get_theme
 from momentum.ui import (
     alerts_view,
     components,
+    data_view,
     fundamentals_view,
     portfolio_view,
     saved,
@@ -69,7 +71,9 @@ def _current_symbol(raw: str) -> str | None:
         return None
 
 
-def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool) -> None:
+def _rail(
+    rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool, who: Identity
+) -> None:
     """Watchlist rail: list, demo toggle, refresh and the data-source note."""
     count = len(views.watchlist_symbols())
     with rail:
@@ -80,14 +84,14 @@ def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool)
             first_run=first_run,
             skeleton=lambda: components.rail_skeleton(count),
         )
-        _data_controls()
+        _data_controls(who)
     with slot:
         views.watchlist_rail(_current_symbol(raw_symbol), demo)
 
 
-def _data_controls() -> None:
-    """Demo toggle, refresh and the data-source note (rail footer, or under the
-    watchlist table when the rail steps aside)."""
+def _data_controls(who: Identity) -> None:
+    """Demo toggle, refresh, "Your data" and the data-source note (rail footer, or
+    under the watchlist table when the rail steps aside)."""
     with st.container(key="data_controls"):
         components.hairline()
         st.toggle(
@@ -103,6 +107,7 @@ def _data_controls() -> None:
             key="refresh",
             on_click=data.clear_caches,
         )
+        data_view.your_data(who)
         components.fineprint(
             "Demo data is synthetic and works offline. Live data comes from Yahoo Finance "
             "via the unofficial yfinance library and may be delayed or incomplete. "
@@ -197,9 +202,9 @@ def main() -> None:
     # there (an empty container takes no space) and the table gets the width.
     if watch_tab.open:
         with main_column:
-            _data_controls()
+            _data_controls(who)
     else:
-        _rail(rail, raw_symbol or "", demo, first_run=first_run)
+        _rail(rail, raw_symbol or "", demo, first_run=first_run, who=who)
 
     st.space("large")
     components.theme_watcher()
