@@ -44,6 +44,10 @@ jobs:
       - name: Mypy
         run: uv run mypy
 
+      - name: Chromium for the browser tests
+        # tests/test_motion_browser.py mounts the motion components in a real browser.
+        run: uv run playwright install --with-deps chromium
+
       - name: Pytest
         run: uv run pytest --cov --cov-report=term-missing
 
