@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     # use momentum.data, whose Streamlit caches must not be created before the
     # Streamlit runtime exists (serve.py imports momentum.identity first).
     from momentum.store.alerts import SqlAlertRepository
+    from momentum.store.portfolio import SqlPortfolioRepository
     from momentum.store.watchlists import SqlWatchlistRepository
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class Store:
     db: Database
     watchlists: SqlWatchlistRepository
     alerts: SqlAlertRepository
+    portfolio: SqlPortfolioRepository
 
     def close(self) -> None:
         self.db.close()
@@ -48,6 +50,7 @@ class Store:
 def open_store(url: str) -> Store:
     """Open the database at ``url`` and bring its schema up to date."""
     from momentum.store.alerts import SqlAlertRepository
+    from momentum.store.portfolio import SqlPortfolioRepository
     from momentum.store.watchlists import SqlWatchlistRepository
 
     db = open_database(url)
@@ -58,7 +61,12 @@ def open_store(url: str) -> Store:
         raise
     if applied:
         logger.info("Applied migrations: %s", ", ".join(applied))
-    return Store(db=db, watchlists=SqlWatchlistRepository(db), alerts=SqlAlertRepository(db))
+    return Store(
+        db=db,
+        watchlists=SqlWatchlistRepository(db),
+        alerts=SqlAlertRepository(db),
+        portfolio=SqlPortfolioRepository(db),
+    )
 
 
 _stores: dict[str, Store] = {}

@@ -154,9 +154,38 @@ def _seed(symbol: str) -> int:
     return zlib.crc32(symbol.encode())
 
 
+# US dollars per unit, for synthetic exchange rates such as GBPINR=X (demo mode only).
+DEMO_USD_RATES: Final = {
+    "USD": 1.0,
+    "EUR": 1.12,
+    "GBP": 1.33,
+    "INR": 0.01134,
+    "JPY": 0.0066,
+    "CAD": 0.72,
+    "AUD": 0.66,
+    "CHF": 1.25,
+    "CNY": 0.14,
+    "HKD": 0.128,
+}
+
+
+def _fx_instrument(symbol: str) -> DemoInstrument | None:
+    """``GBPINR=X`` -> a currency pair priced from ``DEMO_USD_RATES``."""
+    if len(symbol) != 8 or not symbol.endswith("=X"):
+        return None
+    base, quote = symbol[:3], symbol[3:6]
+    if base not in DEMO_USD_RATES or quote not in DEMO_USD_RATES:
+        return None
+    rate = DEMO_USD_RATES[base] / DEMO_USD_RATES[quote]
+    return DemoInstrument(f"{base}/{quote}", rate, quote, "CCY", quote_type="CURRENCY")
+
+
 def _instrument(symbol: str) -> DemoInstrument:
     if symbol in INSTRUMENTS:
         return INSTRUMENTS[symbol]
+    fx = _fx_instrument(symbol)
+    if fx is not None:
+        return fx
     if symbol.startswith("INVALID") or symbol.startswith("ZZZ"):
         msg = f"No data found for '{symbol}' (demo mode)."
         raise NoDataError(msg)

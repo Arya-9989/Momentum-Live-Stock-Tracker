@@ -53,3 +53,28 @@
 
 /* Row actions never shrink into an ellipsis ("Del..."). */
 [class*="st-key-alert_delete_"] { flex: none; }
+
+/* ---------------------------------------------------------------- portfolio */
+/* Numerals first: the value is the hero, in tabular figures, like a quote. */
+.mm-psummary { padding: 8px 0 0; }
+.mm-psummary p, .mm-psummary dl { margin: 0; }
+.mm-plabel { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--mm-secondary); letter-spacing: 0.01em; }
+.mm-pvalue {
+  margin-top: 2px !important; font-size: 44px; line-height: 52px; font-weight: 600;
+  letter-spacing: -0.02em; color: var(--mm-ink);
+}
+[data-testid="stApp"] .mm-pstats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; row-gap: 8px;
+  margin: 12px 0 0; padding: 0; /* Streamlit indents a dl by 32px */
+}
+.mm-pstat { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0; }
+.mm-pstat dt { margin: 0; padding: 0; font-size: 13px; line-height: 18px; color: var(--mm-secondary); }
+.mm-pstat dd { margin: 0; padding: 0; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--mm-ink); }
+.mm-pstat dd .mm-pct { display: block; font-size: 13px; line-height: 18px; font-weight: 500; }
+.mm-pstat dd.up { color: var(--mm-up); }
+.mm-pstat dd.down { color: var(--mm-down); }
+.mm-pnote { margin-top: 8px !important; font-size: 12px; line-height: 16px; color: var(--mm-secondary); }
+@media (max-width: 640px) {
+  .mm-pvalue { font-size: 36px; line-height: 44px; }
+  .mm-pstat dd { font-size: 15px; line-height: 20px; }
+}

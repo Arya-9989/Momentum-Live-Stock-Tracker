@@ -9,9 +9,6 @@
 .momentum
 compose.yaml
 deploy
-.momentum
-compose.yaml
-deploy
 htmlcov
 **/__pycache__
 **/*.pyc

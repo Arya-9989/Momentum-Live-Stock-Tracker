@@ -212,3 +212,26 @@ def range_position(value: float | None, low: float | None, high: float | None) -
     if any(math.isnan(v) for v in (value, low, high)) or high <= low:
         return None
     return min(1.0, max(0.0, (value - low) / (high - low)))
+
+
+def format_money(value: float | None, currency: str | None, *, signed: bool = False) -> str:
+    """Money in a major currency, always to the cent: ``$12,345.60``, ``-₹1,200.00``.
+
+    Unlike ``format_price`` (whose decimals follow the size of a quote), account
+    values keep two places, so a column of totals lines up.
+    """
+    if value is None or math.isnan(value):
+        return PLACEHOLDER
+    if rounds_to_zero(value, 2):
+        value = 0.0
+    sign = "-" if value < 0 else ("+" if signed and value > 0 else "")
+    return f"{sign}{currency_symbol(currency)}{abs(value):,.2f}"
+
+
+def format_quantity(value: float | None) -> str:
+    """Share counts: whole numbers plainly, fractions to at most 8 places (``0.0125``)."""
+    if value is None or math.isnan(value):
+        return PLACEHOLDER
+    if float(value).is_integer():
+        return f"{value:,.0f}"
+    return f"{value:,.8f}".rstrip("0").rstrip(".")

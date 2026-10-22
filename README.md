@@ -82,8 +82,17 @@ is an illustration and shows no market data.</sub>
   page, plus a list in the Alerts tab). Optionally they also go by email, to an identity provider's
   verified address only, or to a webhook signed with HMAC-SHA256. See
   [ADR 0002](docs/adr/0002-alerts.md) and [Alerts](#alerts).
-- **CSV export** of the visible prices plus indicators, the comparison and the watchlist, at full
-  precision.
+- **Portfolio.** Record buys, sells and splits (fractional shares too) and see each holding's
+  shares, average cost, value, day change, and unrealized and realized P&L, with the portfolio's
+  value as the headline. Cost basis is **first in, first out** (FIFO), with fees counted in. A
+  back-dated buy re-matches later sales, and a sale or delete that would overdraw a holding is
+  refused. Every figure stays in the instrument's own currency (London prices are entered in pence
+  and valued in pounds), and totals are per currency. They can be converted at today's rate on
+  request, labelled as such. Arithmetic is exact `Decimal`. FIFO is what US brokers default to and
+  what Indian rules apply; UK pooling and Canadian ACB use average cost, so realized figures there
+  will differ ([ADR 0003](docs/adr/0003-portfolio-cost-basis.md)).
+- **CSV export** of the visible prices plus indicators, the comparison, the watchlist, and the
+  portfolio's holdings and transactions, at full precision.
 - **Designed failure states.** An unknown symbol, a network outage or a Yahoo rate limit each
   get a short headline and one next step in place of the quote ("Can't reach Yahoo Finance."),
   and Compare, the Watchlist and the rail say it once instead of on every row. Network and
@@ -446,7 +455,6 @@ advice.**
 
 These features are not implemented yet:
 
-- Portfolio view with holdings, cost basis and P&L.
 - A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.
 - Fundamentals tab (income statement, balance sheet, dividends).
 
