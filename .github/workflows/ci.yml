@@ -44,6 +44,10 @@ jobs:
       - name: Mypy
         run: uv run mypy
 
+      - name: Chromium for the browser tests
+        # tests/test_motion_browser.py mounts the motion components in a real browser.
+        run: uv run playwright install --with-deps chromium
+
       - name: Pytest
         run: uv run pytest --cov --cov-report=term-missing
 
@@ -87,14 +91,18 @@ jobs:
 
       - name: App renders inside the image
         # /_stcore/health never runs the script, so also render it headlessly:
-        # this catches missing package assets (rail.js, styles.css) and import errors.
+        # this catches missing package assets (rail.js, kpis.js, styles.css) and import errors.
         run: |
           docker exec momentum python -c "
+          import json
           from streamlit.testing.v1 import AppTest
           at = AppTest.from_file('streamlit_app.py', default_timeout=120).run()
           assert not at.exception, at.exception
           assert len(at.get('plotly_chart')) == 1
-          assert [m.label for m in at.metric][:2] == ['6M return', 'Market cap']
+          data = {e.proto.component_name: e.proto.json for e in at.get('bidi_component')}
+          cards = json.loads(data['momentum_kpi_row'])['cards']
+          assert [c['label'] for c in cards][:2] == ['6M return', 'Market cap']
+          assert 'Apple Inc.' in ' '.join(str(e.proto) for e in at.get('html'))
           print('rendered')
           "
 

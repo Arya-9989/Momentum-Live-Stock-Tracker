@@ -5,7 +5,6 @@
  *   data-testid: stApp, stHeader, stMain, stMainBlockContainer, stHorizontalBlock,
  *                stLayoutWrapper, stColumn, stVerticalBlock, stElementContainer, stTabs,
  *                stTab, stButtonGroup, stBaseButton-tertiary, stPopoverButton,
- *                stMetric, stMetricLabel, stMetricValue, stMetricDelta,
  *                stAlertContainer, stExpander, stCaptionContainer, stTextInputRootElement,
  *                stMultiSelect, stMultiSelectTagsContainer (with its [data-tag] chips),
  *                stTooltipHoverTarget, stCheckbox, stBidiComponentIsolated (rail host)
@@ -178,6 +177,37 @@
 .mm-change.down .mm-num { color: var(--mm-down); }
 .mm-change .mm-when { font-weight: 400; color: var(--mm-secondary); }
 
+/* Number roll (components.roll_html): when a figure changes, only the characters
+   that differ roll, the new glyph in and the old one out, clipped to the line;
+   upwards when the value rose, downwards when it fell. The KPI tiles do the same
+   in numeric.js with the same timings. Only transform and opacity move, the old
+   glyph ends hidden (and shows through its stagger delay: backwards fill), and
+   with reduced motion the new value is simply there. */
+.mm-roll { white-space: pre; }
+.mm-slot { position: relative; display: inline-block; clip-path: inset(0 -1em); }
+.mm-in { display: inline-block; }
+.mm-out { position: absolute; inset: 0; text-align: center; visibility: hidden; }
+.mm-lead { clip-path: inset(0 -20em 0 -1em); }
+.mm-lead .mm-out { inset: 0 auto 0 0; text-align: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .mm-roll .mm-in {
+    animation: mm-roll-in-up 420ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--mm-d, 0ms) + 40ms) backwards;
+  }
+  .mm-roll-down .mm-in { animation-name: mm-roll-in-down; }
+  .mm-roll .mm-out { animation: mm-roll-out-up 180ms cubic-bezier(0.4, 0, 0.6, 1) var(--mm-d, 0ms) backwards; }
+  .mm-roll-down .mm-out { animation-name: mm-roll-out-down; }
+}
+@keyframes mm-roll-in-up { from { transform: translateY(0.6em); opacity: 0; } }
+@keyframes mm-roll-in-down { from { transform: translateY(-0.6em); opacity: 0; } }
+@keyframes mm-roll-out-up {
+  from { visibility: visible; opacity: 1; transform: none; }
+  to { visibility: visible; opacity: 0; transform: translateY(-0.6em); }
+}
+@keyframes mm-roll-out-down {
+  from { visibility: visible; opacity: 1; transform: none; }
+  to { visibility: visible; opacity: 0; transform: translateY(0.6em); }
+}
+
 /* ---------------------------------------------------------------- tabs as local nav */
 /* Paint only (tabs render before this stylesheet arrives). */
 .st-key-main [data-testid="stTab"] p { color: var(--mm-secondary); }
@@ -231,14 +261,29 @@
 /* Tertiary buttons read as links */
 [data-testid="stBaseButton-tertiary"] p { color: var(--mm-focus); }
 
-/* ---------------------------------------------------------------- KPI tiles */
-.st-key-kpi_row { margin-top: 2.5rem; }
-.st-key-kpi_row [data-testid="stMetric"] {
-  height: 100%; padding: 16px 18px; border-radius: 18px; background: var(--mm-surface-2);
+/* ---------------------------------------------------------------- chart transitions */
+/* Streamlit makes every new figure a new element (the figure is part of its id),
+   so a range, symbol or style change mounts a fresh Plotly plot: Plotly.react,
+   and with it layout.transition, never runs. The motion therefore lives on that
+   mount. Axes, grid and the reference line are there at once, so the new scale
+   reads immediately; the series then sweep in along the time axis, left to
+   right, showing the new window being drawn. Clip-path only, so nothing moves
+   in the layout, and Plotly's own plot-area clip (on the parent) still applies.
+   `.mlayer` is Plotly's trace-layer class; if it ever changes, the chart simply
+   appears without the sweep. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.st-key-chart_slot, .st-key-compare_slot) .js-plotly-plot .cartesianlayer .mlayer {
+    animation: mm-sweep 640ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
-[data-testid="stMetricLabel"] p { font-size: 13px; font-weight: 500; color: var(--mm-secondary); letter-spacing: -0.005em; }
-[data-testid="stMetricValue"] { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--mm-ink); }
-[data-testid="stMetricDelta"] { font-variant-numeric: tabular-nums; }
+@keyframes mm-sweep {
+  from { clip-path: inset(-16px 100% -16px -16px); }
+  to { clip-path: inset(-16px -16px -16px -16px); }
+}
+
+/* ---------------------------------------------------------------- KPI tiles */
+/* The tiles are the momentum_kpi_row component (kpis.css). */
+.st-key-kpi_row { margin-top: 2.5rem; }
 
 /* ---------------------------------------------------------------- sections */
 .mm-section { margin: 4.5rem 0 0.75rem; }
@@ -263,7 +308,7 @@
   box-shadow: 0 0 0 2px var(--mm-surface);
 }
 
-.mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: 0; padding: 0; }
+[data-testid="stApp"] .mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: 0; padding: 0; }
 .mm-stat {
   display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
   padding: 11px 0; border-bottom: 1px solid var(--mm-hairline); font-size: 15px; line-height: 20px;
@@ -342,15 +387,10 @@
   .st-key-range [role="radio"] p { font-size: 13px; }
   .st-key-range { flex: 1 1 100% !important; }
   .st-key-range [data-testid="stButtonGroup"], .st-key-range [role="radiogroup"] { width: 100%; }
-  .st-key-kpi_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 0.6rem; }
-  .st-key-kpi_row [data-testid="stColumn"] {
-    flex: 1 1 calc(50% - 0.6rem) !important; min-width: calc(50% - 0.6rem) !important;
-    width: calc(50% - 0.6rem) !important;
-  }
   .mm-section { margin-top: 3rem; }
   [data-testid="stApp"] .mm-section :is(h1, h2) { font-size: 26px; line-height: 32px; }
   .mm-page-title .mm-subhead { font-size: 15px; line-height: 20px; }
-  .mm-ranges, .mm-stats { grid-template-columns: minmax(0, 1fr); }
+  .mm-ranges, [data-testid="stApp"] .mm-stats { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 380px) {
   /* Instrument type and currency step aside so the market-state badge fits. */

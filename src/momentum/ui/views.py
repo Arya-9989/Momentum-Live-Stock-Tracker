@@ -21,6 +21,7 @@ from momentum.ui.kpis import Kpi, build_kpis, key_stats
 OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
 DEFAULT_OVERLAYS = ("SMA 20", "SMA 50")
 COMPARE_HEIGHT = 460
+SHOWN_QUOTE = "_mm_shown_quote"  # the quote the header shows, for its number transition
 STYLE_LABELS = {
     "Line": ":material/show_chart: Line",
     "Candles": ":material/candlestick_chart: Candles",
@@ -188,18 +189,20 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
     chart slots while data loads; later runs keep the previous render (dimmed by
     Streamlit) until the new one replaces it.
     """
-    header_slot = st.container(
-        key="quote_slot", height=components.HEADER_HEIGHT, border=False
-    ).empty()
-    if first_run:
-        with header_slot:
-            components.header_skeleton()
+    header_slot = components.slot(
+        "quote_slot",
+        components.HEADER_HEIGHT,
+        first_run=first_run,
+        skeleton=components.header_skeleton,
+    )
     range_label = range_control()
     height = expected_chart_height()
-    chart_slot = st.container(key="chart_slot", height=height, border=False).empty()
-    if first_run:
-        with chart_slot:
-            components.chart_skeleton(height)
+    chart_slot = components.slot(
+        "chart_slot",
+        height,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(height),
+    )
     controls = chart_options(range_label)
     footnote = st.empty()
 
@@ -216,13 +219,16 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
         shown = "" if isinstance(exc, data.InvalidSymbolError) else raw_symbol
         with header_slot:
             components.error_header(shown, messages.describe(exc, raw_symbol))
+        st.session_state.pop(SHOWN_QUOTE, None)  # the next quote appears without a roll
         with chart_slot:
             components.error_panel(messages.chart_note(exc), height=height, compact=True)
         return
 
     quote, quote_error = load_quote(symbol, full_history, demo)
     with header_slot:
-        components.quote_header(quote)
+        # The figures that differ from what the header showed last roll in.
+        components.quote_header(quote, st.session_state.get(SHOWN_QUOTE))
+    st.session_state[SHOWN_QUOTE] = quote
 
     period = config.get_range(controls.range_label).period
     history = data.visible_window(full_history, period)
@@ -353,10 +359,12 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
             )
             or "1Y"
         )
-    chart_slot = st.container(key="compare_slot", height=COMPARE_HEIGHT, border=False).empty()
-    if first_run:
-        with chart_slot:
-            components.chart_skeleton(COMPARE_HEIGHT)
+    chart_slot = components.slot(
+        "compare_slot",
+        COMPARE_HEIGHT,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(COMPARE_HEIGHT),
+    )
 
     symbols, rejected = data.parse_symbol_list(raw, config.MAX_COMPARE)
     if not symbols:
@@ -589,10 +597,12 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
     )
     symbols = watchlist_symbols()
     height = table_height(len(symbols))
-    table_slot = st.container(key="watchlist_slot", height=height, border=False).empty()
-    if first_run:
-        with table_slot:
-            components.chart_skeleton(height)
+    table_slot = components.slot(
+        "watchlist_slot",
+        height,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(height),
+    )
     raw = st.multiselect(
         "Symbols in your watchlist",
         options=list(dict.fromkeys([*config.DEFAULT_WATCHLIST, *config.QUICK_PICKS])),

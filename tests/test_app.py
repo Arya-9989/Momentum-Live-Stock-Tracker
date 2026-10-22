@@ -6,8 +6,10 @@ these tests never touch the network.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yfinance
@@ -48,21 +50,37 @@ def component_names(at: AppTest) -> list[str]:
     return [str(el.proto.component_name) for el in at.get("bidi_component")]
 
 
+def component_data(at: AppTest, name: str) -> Any:
+    """The JSON a v2 component was mounted with (its rendered content)."""
+    for el in at.get("bidi_component"):
+        if el.proto.component_name == name:
+            return json.loads(el.proto.json)
+    raise AssertionError(f"{name} not rendered")
+
+
+def kpi_labels(at: AppTest) -> list[str]:
+    return [card["label"] for card in component_data(at, "momentum_kpi_row")["cards"]]
+
+
 def test_overview_renders_kpis_chart_and_stats() -> None:
     at = run()
     assert not at.exception
     assert "Apple Inc." in html_text(at)
-    assert [m.label for m in at.metric][:2] == ["6M return", "Market cap"]
+    assert kpi_labels(at)[:2] == ["6M return", "Market cap"]
     assert len(at.get("plotly_chart")) == 1
     assert "Demo mode" in html_text(at)  # one-line notice, shown whenever demo data is on
-    assert component_names(at) == ["momentum_watchlist_rail", "momentum_theme_watch"]
+    assert component_names(at) == [
+        "momentum_kpi_row",
+        "momentum_watchlist_rail",
+        "momentum_theme_watch",
+    ]
 
 
 def test_index_symbol_from_url() -> None:
     at = run(ticker="^NSEI", range="1Y")
     assert not at.exception
     assert "NIFTY 50" in html_text(at)
-    assert "Drawdown" in [m.label for m in at.metric]
+    assert "Drawdown" in kpi_labels(at)
 
 
 def test_changing_range_resets_unsupported_interval() -> None:
@@ -135,3 +153,19 @@ def test_compare_and_watchlist_tabs() -> None:
     assert not watch.exception
     table = watch.dataframe[0].value
     assert "RELIANCE.NS" in table["Symbol"].tolist()
+
+
+def test_a_new_symbol_rolls_its_figures_in_place() -> None:
+    """The header rolls from what it showed before; the KPI component keeps its
+    key (and DOM) across reruns, so its figures can roll too."""
+    at = run()
+    kpi_id = next(e.proto.id for e in at.get("bidi_component") if "kpi" in e.proto.component_name)
+    assert "mm-roll mm-roll-" not in html_text(at)  # a first render shows plain figures
+    at.text_input(key="ticker").set_value("MSFT").run()
+    assert not at.exception
+    markup = html_text(at)
+    assert "Microsoft Corporation" in markup
+    assert "mm-roll mm-roll-" in markup  # the price differs from Apple's, so it rolls
+    assert kpi_id in [e.proto.id for e in at.get("bidi_component")]
+    at.run()  # nothing changed: plain figures again, no roll
+    assert "mm-roll mm-roll-" not in html_text(at)
