@@ -67,6 +67,13 @@ def _decimals_for(value: float) -> int:
     return 6
 
 
+def price_decimals(value: float | None, quote_type: str | None = None) -> int:
+    """Decimals used for a price of this size, matching ``format_price``."""
+    if value is None or math.isnan(value) or quote_type in UNITLESS_QUOTE_TYPES:
+        return 2
+    return _decimals_for(value)
+
+
 def format_number(value: float | None, decimals: int = 2) -> str:
     if value is None or math.isnan(value):
         return PLACEHOLDER
@@ -77,31 +84,44 @@ def format_price(
     value: float | None,
     currency: str | None = None,
     quote_type: str | None = None,
+    *,
+    decimals: int | None = None,
 ) -> str:
     """Format a price with its currency, e.g. ``$189.32``, ``₹3,412.10``, ``120.50p``.
 
     Index levels are shown without a currency symbol. Sub-unit prices (crypto,
-    penny stocks) keep enough decimals to stay meaningful.
+    penny stocks) keep enough decimals to stay meaningful. ``decimals``
+    overrides the size-based choice (used to give a change the precision of
+    its price).
     """
     if value is None or math.isnan(value):
         return PLACEHOLDER
     if quote_type in UNITLESS_QUOTE_TYPES:
-        return format_number(value, 2)
+        return format_number(value, 2 if decimals is None else decimals)
     sign = "-" if value < 0 else ""
-    amount = f"{abs(value):,.{_decimals_for(value)}f}"
+    places = _decimals_for(value) if decimals is None else decimals
+    amount = f"{abs(value):,.{places}f}"
     if currency in MINOR_UNIT_SUFFIXES:
         return f"{sign}{amount}{MINOR_UNIT_SUFFIXES[currency]}"
     return f"{sign}{currency_symbol(currency)}{amount}"
 
 
 def format_change(
-    value: float | None, currency: str | None = None, quote_type: str | None = None
+    value: float | None,
+    currency: str | None = None,
+    quote_type: str | None = None,
+    *,
+    decimals: int | None = None,
 ) -> str:
-    """Signed price change, e.g. ``+$1.20`` / ``-₹4.50``."""
+    """Signed price change, e.g. ``+$1.20`` / ``-₹4.50``.
+
+    Pass the price's ``decimals`` so a small move on a large price reads
+    ``+$0.51`` rather than ``+$0.5077``.
+    """
     if value is None or math.isnan(value):
         return PLACEHOLDER
     sign = "+" if value > 0 else ("-" if value < 0 else "")
-    return f"{sign}{format_price(abs(value), currency, quote_type)}"
+    return f"{sign}{format_price(abs(value), currency, quote_type, decimals=decimals)}"
 
 
 def format_percent(value: float | None, decimals: int = 2, *, signed: bool = True) -> str:

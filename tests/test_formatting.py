@@ -131,3 +131,28 @@ def test_currency_symbol() -> None:
     assert fmt.currency_symbol("usd") == "$"
     assert fmt.currency_symbol("GBp") == "£"
     assert fmt.currency_symbol(None) == ""
+
+
+@pytest.mark.parametrize(
+    ("value", "quote_type", "expected"),
+    [
+        (228.0, "EQUITY", 2),
+        (0.45, "CRYPTOCURRENCY", 4),
+        (108_250.0, None, 0),
+        (25_300.0, "INDEX", 2),
+    ],
+)
+def test_price_decimals(value: float, quote_type: str | None, expected: int) -> None:
+    assert fmt.price_decimals(value, quote_type) == expected
+
+
+def test_price_decimals_for_missing_values() -> None:
+    assert fmt.price_decimals(None) == 2
+    assert fmt.price_decimals(NAN) == 2
+
+
+def test_change_can_take_the_price_precision() -> None:
+    assert fmt.format_change(0.5077, "USD", "EQUITY") == "+$0.5077"  # size-based default
+    assert fmt.format_change(0.5077, "USD", "EQUITY", decimals=2) == "+$0.51"
+    assert fmt.format_change(-6.15, "INR", None, decimals=2) == "-₹6.15"
+    assert fmt.format_price(25_300.456, "USD", "INDEX", decimals=1) == "25,300.5"
