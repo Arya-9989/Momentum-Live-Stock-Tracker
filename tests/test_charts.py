@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -223,3 +225,106 @@ def test_comparison_chart_marks_only_the_last_point() -> None:
     assert list(trace.marker.size) == [0, 9, 0]  # last *valid* point
     assert trace.line.color == DARK.series[0]
     assert fig.layout.yaxis.tickformat == ".0f"  # "0%", not "+0%"
+
+
+# --------------------------------------------------------------------------- quality pass
+
+
+def test_price_range_keeps_overlays_in_view() -> None:
+    """SMA 50 / SMA 200 / Bollinger lines were clipped: the range used Close only."""
+    closes = np.r_[np.linspace(100, 60, 200), np.linspace(60, 70, 60)]
+    index = pd.bdate_range("2024-01-01", periods=len(closes))
+    frame = pd.DataFrame(
+        {"Open": closes, "High": closes + 1, "Low": closes - 1, "Close": closes, "Volume": 1.0},
+        index=index,
+    )
+    settings = ind.IndicatorSettings(sma_windows=(200,), bollinger=True, rsi=False)
+    visible = ind.add_indicators(frame, settings).iloc[-60:]
+    fig = charts.price_chart(visible, interval="1d")
+    low, high = fig.layout.yaxis.range
+    for column in ("Close", "SMA 200", "BB Upper", "BB Lower"):
+        assert low <= visible[column].min()
+        assert visible[column].max() <= high
+    candles = charts.price_chart(visible, interval="1d", style="Candles")
+    c_low, c_high = candles.layout.yaxis.range
+    assert c_low <= visible["Low"].min()
+    assert visible["SMA 200"].max() <= c_high
+
+
+def test_one_crosshair_and_readout_span_every_panel() -> None:
+    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
+    settings = ind.IndicatorSettings(sma_windows=(20,), bollinger=True, rsi=True, macd=True)
+    fig = charts.price_chart(ind.add_indicators(frame, settings), interval="1d")
+    layout = fig.layout
+    assert layout.hovermode == "x unified"
+    assert layout.hoversubplots == "axis"
+    # Every trace shares the one x-axis; panels are y-domains stacked on it.
+    assert {trace.xaxis or "x" for trace in fig.data} == {"x"}
+    assert {trace.yaxis for trace in fig.data} == {"y", "y2", "y3", "y4"}
+    assert layout.xaxis.anchor == "y4"  # dates under the bottom panel
+    domains = [layout[f"yaxis{n}" if n > 1 else "yaxis"].domain for n in (1, 2, 3, 4)]
+    assert all(upper[0] > lower[1] for upper, lower in itertools.pairwise(domains))
+    # Every series reports in the readout, value first; nothing is skipped.
+    assert all(trace.hoverinfo != "skip" for trace in fig.data)
+    sma = next(t for t in fig.data if t.name == "SMA 20")
+    assert sma.hovertemplate.startswith("<b>")
+    assert "SMA 20" in sma.hovertemplate
+
+
+def test_volume_ticks_read_like_finance_not_si() -> None:
+    assert charts.compact_ticks(2.3e9) == ([1e9, 2e9], ["1B", "2B"])
+    assert charts.compact_ticks(180e6) == ([5e7, 1e8], ["50M", "100M"])
+    assert charts.compact_ticks(5_300.0) == ([2_500.0, 5_000.0], ["2.5K", "5K"])
+    assert charts.compact_ticks(0.0) == ([], [])
+    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10), volume=2.3e9)
+    fig = charts.price_chart(frame, interval="1d")
+    assert list(fig.layout.yaxis2.ticktext) == ["1B", "2B"]
+
+
+def test_macd_axis_uses_significant_digits() -> None:
+    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
+    fig = charts.price_chart(
+        ind.add_indicators(frame, ind.IndicatorSettings(sma_windows=(), rsi=False, macd=True)),
+        interval="1d",
+        price_decimals=4,
+    )
+    assert fig.layout.yaxis3.tickformat == ".3~r"
+    macd = next(t for t in fig.data if t.name == "MACD")
+    assert ":,.4f}" in macd.hovertemplate
+
+
+@pytest.mark.parametrize(
+    ("values", "gap", "expected"),
+    [
+        ([0.0, 10.0], 1.0, [0.0, 10.0]),  # far apart: untouched
+        ([5.0, 5.2], 1.0, [4.6, 5.6]),  # spread evenly around their mean
+        ([3.0, 1.0, 1.0], 1.0, [3.0, 0.5, 1.5]),  # order of the input is kept
+        ([0.0, 0.5, 1.0], 1.0, [-0.5, 0.5, 1.5]),  # a chain merges into one group
+    ],
+)
+def test_dodge(values: list[float], gap: float, expected: list[float]) -> None:
+    assert charts.dodge(values, gap) == pytest.approx(expected)
+
+
+def test_comparison_chart_is_direct_labelled_without_x_padding() -> None:
+    index = pd.date_range("2024-01-01", periods=3)
+    normalized = pd.DataFrame(
+        {"AAPL": [0.0, 5.0, 12.4], "MSFT": [0.0, 4.0, 12.3], "^GSPC": [0.0, -1.0, -2.0]},
+        index=index,
+    )
+    fig = charts.comparison_chart(normalized)
+    labels = {a.text: a for a in fig.layout.annotations}
+    assert set(labels) == {"AAPL +12.4%", "MSFT +12.3%", "^GSPC -2.0%"}
+    assert all(a.font.color == LIGHT.ink for a in labels.values())  # text ink, not series colour
+    assert labels["AAPL +12.4%"].y > labels["MSFT +12.3%"].y  # dodged apart, order kept
+    assert list(fig.layout.xaxis.range) == [index[0], index[-1]]
+    assert fig.layout.yaxis.side == "left"
+    assert fig.layout.showlegend is True
+
+
+def test_comparison_chart_skips_direct_labels_past_four_series() -> None:
+    normalized = pd.DataFrame(
+        {s: [0.0, float(i)] for i, s in enumerate("ABCDE")},
+        index=pd.date_range("2024-01-01", periods=2),
+    )
+    assert not charts.comparison_chart(normalized).layout.annotations

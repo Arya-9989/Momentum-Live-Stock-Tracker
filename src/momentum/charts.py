@@ -2,17 +2,22 @@
 
 Every figure is drawn with a per-theme template (``plotly_template``) so the
 light and dark charts are designed separately rather than inverted.
+
+The price chart stacks its panels (price, volume, RSI, MACD) as y-axis domains
+on **one** shared x-axis, so a single crosshair runs through every panel and a
+single readout (``hoversubplots="axis"``) lists every series at the hovered bar.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
+from momentum import formatting as fmt
 from momentum.config import is_intraday
 from momentum.theme import LIGHT, Theme, direction_color, overlay_color, with_alpha
 
@@ -22,6 +27,10 @@ CHART_STYLES: Final[tuple[ChartStyle, ...]] = ("Line", "Candles")
 FONT_FAMILY: Final = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
 AREA_TOP_ALPHA: Final = 0.24
 _Y_PADDING: Final = 0.06  # share of the price range left free above and below the line
+_PANEL_GAP: Final = 0.06  # share of the plot height between stacked panels
+DIRECT_LABEL_LIMIT: Final = 4  # dataviz rule: up to four series are labelled at the line end
+_LABEL_PX: Final = 16  # minimum vertical distance between two end labels
+_OVERLAY_PREFIXES: Final = ("SMA", "EMA", "BB")
 
 
 def plotly_template(theme: Theme) -> go.layout.Template:
@@ -60,6 +69,7 @@ def plotly_template(theme: Theme) -> go.layout.Template:
                 "bgcolor": "rgba(0,0,0,0)",
                 "font": {"color": theme.secondary, "size": 12},
                 "itemclick": "toggle",
+                "traceorder": "normal",
             },
             "xaxis": {
                 **axis,
@@ -115,7 +125,7 @@ def padded_range(
     Needed because the area fill runs to zero: without an explicit range Plotly
     would stretch the price axis down to 0 and flatten the line.
     """
-    finite = [float(v) for v in values if pd.notna(v)]
+    finite = [float(v) for v in values if pd.notna(v) and math.isfinite(float(v))]
     if not finite:
         return None
     low, high = min(finite), max(finite)
@@ -135,6 +145,25 @@ def trend_change(close: pd.Series, reference: float | None = None) -> float | No
     return float(values.iloc[-1]) - base
 
 
+def compact_ticks(maximum: float) -> tuple[list[float], list[str]]:
+    """Two round ticks under ``maximum`` labelled like the rest of the app (100M, 1.5B).
+
+    Plotly's SI format would print billions as "G"; finance reads "B".
+    """
+    if not math.isfinite(maximum) or maximum <= 0:
+        return [], []
+    raw = maximum / 2
+    magnitude = 10 ** math.floor(math.log10(raw))
+    step = max(m * magnitude for m in (1, 2, 2.5, 5) if m * magnitude <= raw)
+    values = [step, 2 * step]
+    return values, [_compact_label(v) for v in values]
+
+
+def _compact_label(value: float) -> str:
+    text = fmt.format_compact(value, 1)
+    return text.replace(".0", "") if ".0" in text else text
+
+
 def _panel_layout(frame: pd.DataFrame) -> dict[str, int]:
     """Which panels to draw (price always; volume/RSI/MACD when data exists) and their rows."""
     panels = ["price"]
@@ -150,8 +179,45 @@ def _panel_layout(frame: pd.DataFrame) -> dict[str, int]:
 _PANEL_WEIGHTS = {"price": 3.4, "volume": 0.8, "rsi": 1.0, "macd": 1.0}
 
 
-def _price_hover(prefix: str, suffix: str, decimals: int) -> str:
+def panel_domains(rows: Mapping[str, int]) -> dict[str, tuple[float, float]]:
+    """Vertical domain of each panel, top to bottom, with ``_PANEL_GAP`` between them."""
+    names = sorted(rows, key=rows.__getitem__)
+    usable = 1.0 - _PANEL_GAP * (len(names) - 1)
+    total = sum(_PANEL_WEIGHTS[n] for n in names)
+    domains: dict[str, tuple[float, float]] = {}
+    top = 1.0
+    for name in names:
+        height = usable * _PANEL_WEIGHTS[name] / total
+        domains[name] = (max(0.0, top - height), top)
+        top -= height + _PANEL_GAP
+    return domains
+
+
+def _axis_ref(row: int) -> str:
+    """Trace reference of a panel's y-axis (``y``, ``y2``...)."""
+    return "y" if row == 1 else f"y{row}"
+
+
+def _readout(value: str, name: str, theme: Theme) -> str:
+    """One readout row: the value leads, the series name follows in secondary ink."""
+    return f"<b>{value}</b>  <span style='color:{theme.secondary}'>{name}</span><extra></extra>"
+
+
+def _price_value(prefix: str, suffix: str, decimals: int) -> str:
     return f"{prefix}%{{y:,.{decimals}f}}{suffix}"
+
+
+def price_range(
+    frame: pd.DataFrame, style: ChartStyle, reference: float | None
+) -> tuple[float, float]:
+    """Price-panel range that keeps every drawn series in view: the line (or the
+    candles' highs and lows), the moving averages, the bands and the reference."""
+    columns = ["High", "Low"] if style == "Candles" else ["Close"]
+    columns += [c for c in frame.columns if c.startswith(_OVERLAY_PREFIXES) and c != "BB Middle"]
+    values = [v for c in columns if c in frame for v in frame[c].tolist()]
+    if reference is not None:
+        values.append(reference)
+    return padded_range(values) or (0.0, 1.0)
 
 
 def _add_price(
@@ -160,11 +226,13 @@ def _add_price(
     style: ChartStyle,
     theme: Theme,
     *,
-    hover: str,
+    value: str,
+    bounds: tuple[float, float],
     reference: float | None,
     reference_label: str,
 ) -> None:
     x = frame.index
+    low, high = bounds
     if style == "Candles":
         fig.add_trace(
             go.Candlestick(
@@ -178,16 +246,17 @@ def _add_price(
                 decreasing={"line": {"color": theme.down, "width": 1}, "fillcolor": theme.down},
                 whiskerwidth=0,
                 showlegend=False,
-            ),
-            row=1,
-            col=1,
+                hovertemplate=(
+                    f"<b>{value.replace('%{y', '%{close')}</b>  "
+                    f"<span style='color:{theme.secondary}'>O {value.replace('%{y', '%{open')}"
+                    f"  H {value.replace('%{y', '%{high')}  L {value.replace('%{y', '%{low')}"
+                    "</span><extra></extra>"
+                ),
+                yaxis="y",
+            )
         )
     else:
         color = direction_color(theme, trend_change(frame["Close"], reference))
-        bounds = padded_range(
-            [*frame["Close"].tolist(), *([reference] if reference is not None else [])]
-        )
-        low, high = bounds if bounds else (0.0, 1.0)
         fig.add_trace(
             go.Scatter(
                 x=x,
@@ -205,27 +274,34 @@ def _add_price(
                         [1.0, with_alpha(color, AREA_TOP_ALPHA)],
                     ],
                 },
-                hovertemplate=hover + "<extra></extra>",
+                hovertemplate=_readout(value, "Close", theme),
                 showlegend=False,
-            ),
-            row=1,
-            col=1,
+                yaxis="y",
+            )
         )
-        fig.update_yaxes(range=[low, high], row=1, col=1)
 
     if reference is not None:
-        fig.add_hline(
-            y=reference,
+        fig.add_shape(
+            type="line",
+            xref="x domain",
+            x0=0,
+            x1=1,
+            yref="y",
+            y0=reference,
+            y1=reference,
             line={"color": theme.tertiary, "width": 1, "dash": "dot"},
-            annotation={
-                "text": reference_label,
-                "font": {"color": theme.secondary, "size": 11},
-                "xanchor": "left",
-                "yanchor": "bottom",
-            },
-            annotation_position="top left",
-            row=1,
-            col=1,
+            layer="below",
+        )
+        fig.add_annotation(
+            text=reference_label,
+            xref="x domain",
+            x=0,
+            yref="y",
+            y=reference,
+            xanchor="left",
+            yanchor="bottom",
+            showarrow=False,
+            font={"color": theme.secondary, "size": 11},
         )
 
     if {"BB Upper", "BB Lower"}.issubset(frame.columns):
@@ -239,10 +315,9 @@ def _add_price(
                 line=band_line,
                 legendgroup="bb",
                 showlegend=False,
-                hoverinfo="skip",
-            ),
-            row=1,
-            col=1,
+                hovertemplate=_readout(value, "Bollinger upper", theme),
+                yaxis="y",
+            )
         )
         fig.add_trace(
             go.Scatter(
@@ -254,10 +329,9 @@ def _add_price(
                 fill="tonexty",
                 fillcolor=theme.band,
                 legendgroup="bb",
-                hoverinfo="skip",
-            ),
-            row=1,
-            col=1,
+                hovertemplate=_readout(value, "Bollinger lower", theme),
+                yaxis="y",
+            )
         )
 
     for column in (c for c in frame.columns if c.startswith(("SMA", "EMA"))):
@@ -268,20 +342,18 @@ def _add_price(
                 name=column,
                 mode="lines",
                 line={"color": overlay_color(theme, column), "width": 1.5},
-                hovertemplate=hover,
-            ),
-            row=1,
-            col=1,
+                hovertemplate=_readout(value, column, theme),
+                yaxis="y",
+            )
         )
 
 
 def _panel_label(fig: go.Figure, row: int, text: str, theme: Theme) -> None:
     """Name an indicator panel in its top-left corner (oscillators stay out of the legend)."""
-    axis = "" if row == 1 else str(row)
     fig.add_annotation(
         text=text,
-        xref=f"x{axis} domain",
-        yref=f"y{axis} domain",
+        xref="x domain",
+        yref=f"{_axis_ref(row)} domain",
         x=0,
         y=1,
         xanchor="left",
@@ -291,27 +363,41 @@ def _panel_label(fig: go.Figure, row: int, text: str, theme: Theme) -> None:
     )
 
 
-def _add_volume(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> None:
+def _add_volume(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> dict[str, Any]:
+    volume = frame["Volume"]
     fig.add_trace(
         go.Bar(
             x=frame.index,
-            y=frame["Volume"],
+            y=volume,
             name="Volume",
             marker_color=theme.neutral_bar,
             marker_line_width=0,
             showlegend=False,
-            hovertemplate="%{y:.3s}",
-        ),
-        row=row,
-        col=1,
+            customdata=[fmt.format_compact(v) for v in volume],
+            hovertemplate=_readout("%{customdata}", "Volume", theme),
+            yaxis=_axis_ref(row),
+        )
     )
-    fig.update_yaxes(tickformat="~s", nticks=3, row=row, col=1)
     _panel_label(fig, row, "Volume", theme)
+    tickvals, ticktext = compact_ticks(float(volume.max()))
+    return {"tickvals": tickvals, "ticktext": ticktext}
 
 
-def _add_rsi(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> None:
+def _add_rsi(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> dict[str, Any]:
     column = next(c for c in frame.columns if c.startswith("RSI"))
-    fig.add_hrect(y0=30, y1=70, fillcolor=theme.band, line_width=0, row=row, col=1)
+    fig.add_shape(
+        type="rect",
+        xref="x domain",
+        x0=0,
+        x1=1,
+        yref=_axis_ref(row),
+        y0=30,
+        y1=70,
+        fillcolor=theme.band,
+        line_width=0,
+        layer="below",
+    )
+    label = column.replace(" ", " (") + ")"
     fig.add_trace(
         go.Scatter(
             x=frame.index,
@@ -319,17 +405,19 @@ def _add_rsi(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> Non
             name=column,
             mode="lines",
             line={"color": theme.secondary, "width": 1.5},
-            hovertemplate="%{y:.1f}",
+            hovertemplate=_readout("%{y:.1f}", label, theme),
             showlegend=False,
-        ),
-        row=row,
-        col=1,
+            yaxis=_axis_ref(row),
+        )
     )
-    fig.update_yaxes(range=[0, 100], tickvals=[30, 70], row=row, col=1)
-    _panel_label(fig, row, f"{column.replace(' ', ' (')})  ·  30 / 70 band", theme)
+    _panel_label(fig, row, f"{label}  ·  30 / 70 band", theme)
+    return {"range": [0, 100], "tickvals": [30, 70]}
 
 
-def _add_macd(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> None:
+def _add_macd(
+    fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme, decimals: int
+) -> dict[str, Any]:
+    value = f"%{{y:,.{decimals}f}}"
     fig.add_trace(
         go.Bar(
             x=frame.index,
@@ -338,10 +426,9 @@ def _add_macd(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> No
             marker_color=theme.neutral_bar,
             marker_line_width=0,
             showlegend=False,
-            hovertemplate="%{y:.3~s}",
-        ),
-        row=row,
-        col=1,
+            hovertemplate=_readout(value, "Histogram", theme),
+            yaxis=_axis_ref(row),
+        )
     )
     for column, line in (
         ("MACD", {"color": theme.ink, "width": 1.5}),
@@ -354,14 +441,14 @@ def _add_macd(fig: go.Figure, frame: pd.DataFrame, row: int, theme: Theme) -> No
                 name=column,
                 mode="lines",
                 line=line,
-                hovertemplate="%{y:.3~s}",
+                hovertemplate=_readout(value, column, theme),
                 showlegend=False,
-            ),
-            row=row,
-            col=1,
+                yaxis=_axis_ref(row),
+            )
         )
-    fig.update_yaxes(nticks=4, tickformat=".3~s", row=row, col=1)
     _panel_label(fig, row, "MACD (12, 26, 9)  ·  solid MACD, dotted signal", theme)
+    # Significant digits, not SI prefixes: an FX MACD of 0.0012 must not read "1.2m".
+    return {"nticks": 4, "tickformat": ".3~r"}
 
 
 def price_chart(
@@ -385,52 +472,66 @@ def price_chart(
     ``reference`` (the previous close, on 1D) adds a dotted baseline.
     """
     rows = _panel_layout(frame)
-    weights = [_PANEL_WEIGHTS[name] for name in rows]
-    fig = make_subplots(
-        rows=len(rows),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.06,
-        row_heights=[w / sum(weights) for w in weights],
-    )
+    domains = panel_domains(rows)
+    template = plotly_template(theme)
+    fig = go.Figure()
     fig.update_layout(
-        template=plotly_template(theme),
+        template=template,
         # Explicit, because Streamlit's frontend fills an unset plot background.
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=height,
         margin={"l": 0, "r": 4, "t": 28, "b": 4},
         dragmode="zoom",
+        # One readout and one crosshair through every panel on the shared x-axis.
+        hovermode="x unified",
+        hoversubplots="axis",
         # Only price overlays are in the legend; a lone price line needs none.
-        showlegend=any(c.startswith(("SMA", "EMA", "BB")) for c in frame.columns),
+        showlegend=any(c.startswith(_OVERLAY_PREFIXES) for c in frame.columns),
     )
-    # make_subplots creates every axis explicitly, so re-apply the template's axis look.
-    fig.update_xaxes(plotly_template(theme).layout.xaxis.to_plotly_json())
-    fig.update_yaxes(plotly_template(theme).layout.yaxis.to_plotly_json())
-    hover = _price_hover(price_prefix, price_suffix, price_decimals)
+    bounds = price_range(frame, style, reference)
+    value = _price_value(price_prefix, price_suffix, price_decimals)
     _add_price(
-        fig, frame, style, theme, hover=hover, reference=reference, reference_label=reference_label
+        fig,
+        frame,
+        style,
+        theme,
+        value=value,
+        bounds=bounds,
+        reference=reference,
+        reference_label=reference_label,
     )
+    axes: dict[str, dict[str, Any]] = {
+        "price": {
+            "range": list(bounds),
+            "tickprefix": price_prefix,
+            "ticksuffix": price_suffix,
+            "tickformat": ",",
+            "hoverformat": f",.{price_decimals}f",
+        }
+    }
     if "volume" in rows:
-        _add_volume(fig, frame, rows["volume"], theme)
+        axes["volume"] = _add_volume(fig, frame, rows["volume"], theme)
     if "rsi" in rows:
-        _add_rsi(fig, frame, rows["rsi"], theme)
+        axes["rsi"] = _add_rsi(fig, frame, rows["rsi"], theme)
     if "macd" in rows:
-        _add_macd(fig, frame, rows["macd"], theme)
+        axes["macd"] = _add_macd(fig, frame, rows["macd"], theme, price_decimals)
 
-    fig.update_xaxes(rangeslider_visible=False)
-    fig.update_yaxes(
-        tickprefix=price_prefix,
-        ticksuffix=price_suffix,
-        tickformat=",",
-        hoverformat=f",.{price_decimals}f",
-        row=1,
-        col=1,
-    )
+    y_template = template.layout.yaxis.to_plotly_json()
+    bottom = max(rows.values())
+    for name, row in rows.items():
+        key = "yaxis" if row == 1 else f"yaxis{row}"
+        fig.update_layout(
+            {key: {**y_template, **axes[name], "domain": list(domains[name]), "anchor": "x"}}
+        )
     breaks = compute_rangebreaks(pd.DatetimeIndex(frame.index), interval)
-    if breaks:
-        fig.update_xaxes(rangebreaks=breaks)
-    fig.update_xaxes(hoverformat="%a %b %d, %H:%M" if is_intraday(interval) else "%a %b %d, %Y")
+    fig.update_xaxes(
+        template.layout.xaxis.to_plotly_json(),
+        anchor=_axis_ref(bottom),
+        rangeslider_visible=False,
+        rangebreaks=breaks or None,
+        hoverformat="%a %b %d, %H:%M" if is_intraday(interval) else "%a %b %d, %Y",
+    )
     return fig
 
 
@@ -455,6 +556,40 @@ def assign_series_slots(
     return {s: result[s] for s in ordered}
 
 
+def dodge(values: Sequence[float], min_gap: float) -> list[float]:
+    """Positions for labels at ``values`` that are at least ``min_gap`` apart.
+
+    Overlapping labels are grouped and each group is centred on the mean of its
+    targets, so every label moves as little as possible and the order is kept.
+    """
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    groups: list[list[int]] = []
+    for index in order:
+        groups.append([index])
+        while len(groups) > 1:
+            lower, upper = groups[-2], groups[-1]
+            if _group_top(lower, values, min_gap) + min_gap <= _group_bottom(
+                upper, values, min_gap
+            ):
+                break
+            groups[-2:] = [lower + upper]
+    positions = [0.0] * len(values)
+    for group in groups:
+        bottom = _group_bottom(group, values, min_gap)
+        for offset, index in enumerate(group):
+            positions[index] = bottom + offset * min_gap
+    return positions
+
+
+def _group_bottom(group: list[int], values: Sequence[float], gap: float) -> float:
+    centre = sum(values[i] for i in group) / len(group)
+    return centre - gap * (len(group) - 1) / 2
+
+
+def _group_top(group: list[int], values: Sequence[float], gap: float) -> float:
+    return _group_bottom(group, values, gap) + gap * (len(group) - 1)
+
+
 def comparison_chart(
     normalized: pd.DataFrame,
     *,
@@ -462,14 +597,21 @@ def comparison_chart(
     theme: Theme = LIGHT,
     slots: Mapping[str, int] | None = None,
 ) -> go.Figure:
-    """Cumulative % return lines, one per symbol, with a 0% baseline and end dots."""
+    """Cumulative % return lines, one per symbol, with a 0% baseline and end dots.
+
+    Up to ``DIRECT_LABEL_LIMIT`` lines are labelled at their end ("AAPL +12.4%",
+    in text ink beside the line's coloured end dot); the legend stays as well.
+    """
     slots = slots or assign_series_slots(map(str, normalized.columns))
     fig = go.Figure()
+    ends: list[tuple[str, float]] = []
     for column in normalized.columns:
         values = normalized[column]
         last = values.last_valid_index()
         is_last = [bool(last is not None and ts == last) for ts in values.index]
         color = theme.series[slots.get(str(column), 0) % len(theme.series)]
+        if last is not None:
+            ends.append((str(column), float(values.loc[last])))
         fig.add_trace(
             go.Scatter(
                 x=normalized.index,
@@ -477,6 +619,7 @@ def comparison_chart(
                 name=str(column),
                 mode="lines+markers",
                 connectgaps=True,
+                cliponaxis=False,  # the end dot sits on the plot edge
                 line={"color": color, "width": 2},
                 # Only the latest point gets a dot, ringed in the surface colour.
                 marker={
@@ -487,18 +630,43 @@ def comparison_chart(
                         "width": [2 if flag else 0 for flag in is_last],
                     },
                 },
-                hovertemplate="%{y:+.2f}%",
+                hovertemplate=_readout("%{y:+.2f}%", str(column), theme),
             )
         )
     fig.add_hline(y=0, line={"color": theme.axis, "width": 1})
+    bounds = padded_range([0.0, *normalized.to_numpy(dtype=float).ravel().tolist()]) or (-1.0, 1.0)
+    label_margin = 4
+    if 0 < len(ends) <= DIRECT_LABEL_LIMIT:
+        plot_px = max(height - 28 - 32, 1)  # minus the top margin and the date axis
+        gap = (bounds[1] - bounds[0]) * _LABEL_PX / plot_px
+        positions = dodge([v for _, v in ends], gap)
+        texts = [f"{name} {fmt.format_percent(v, 1)}" for name, v in ends]
+        for text, y in zip(texts, positions, strict=True):
+            fig.add_annotation(
+                text=text,
+                xref="x domain",
+                x=1,
+                xshift=10,
+                yref="y",
+                y=y,
+                xanchor="left",
+                yanchor="middle",
+                showarrow=False,
+                font={"color": theme.ink, "size": 12},
+            )
+        label_margin = 18 + 7 * max(len(t) for t in texts)
     fig.update_layout(
         template=plotly_template(theme),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=height,
-        margin={"l": 0, "r": 4, "t": 28, "b": 4},
+        margin={"l": 0, "r": label_margin, "t": 28, "b": 4},
         showlegend=True,
     )
-    fig.update_yaxes(ticksuffix="%", tickformat=".0f")
+    # The end labels own the right edge, so the % scale moves to the left.
+    fig.update_yaxes(ticksuffix="%", tickformat=".0f", range=list(bounds), side="left")
+    if len(normalized.index):
+        # An explicit range: Plotly pads the x autorange for markers, which left a gap.
+        fig.update_xaxes(range=[normalized.index[0], normalized.index[-1]])
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
     return fig
