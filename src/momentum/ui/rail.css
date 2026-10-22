@@ -4,7 +4,19 @@
 
 :host { display: block; }
 
+.wrap { position: relative; }
 .rail { list-style: none; margin: 0; padding: 0; }
+
+/* The selection: one fill behind the rows that slides to the selected one. */
+.indicator {
+  position: absolute; top: 0; left: 0; right: 0; height: 60px; border-radius: 12px;
+  background: var(--mm-fill-selected, rgba(118, 118, 128, 0.16));
+  opacity: 0; pointer-events: none; will-change: transform;
+}
+.indicator.on { opacity: 1; }
+.indicator.ready {
+  transition: transform 320ms cubic-bezier(0.4, 0, 0.6, 1), opacity 180ms cubic-bezier(0.4, 0, 0.6, 1);
+}
 .rail li + li .row::before {
   content: ""; position: absolute; top: 0; left: 12px; right: 12px;
   border-top: 1px solid var(--mm-hairline, rgba(60, 60, 67, 0.12));
@@ -29,7 +41,8 @@
   transition: background-color 180ms cubic-bezier(0.4, 0, 0.6, 1);
 }
 .row:hover { background: var(--mm-fill-hover, rgba(118, 118, 128, 0.08)); }
-.row[aria-current="true"] { background: var(--mm-fill-selected, rgba(118, 118, 128, 0.16)); }
+/* The indicator paints the selected row, so the row itself stays clear. */
+.row[aria-current="true"], .row[aria-current="true"]:hover { background: transparent; }
 .row[aria-current="true"]::before,
 .rail li:has(.row[aria-current="true"]) + li .row::before,
 .rail li:has(.row:hover) + li .row::before,
@@ -74,9 +87,10 @@
 .chg.down { background: #d70015; }
 
 @media (prefers-reduced-motion: reduce) {
-  .row { transition: none; }
+  .row, .indicator.ready { transition: none; }
 }
 @media (forced-colors: active) {
+  .indicator { display: none; }
   .row[aria-current="true"] { outline: 2px solid Highlight; }
   .chg { border: 1px solid CanvasText; }
 }
