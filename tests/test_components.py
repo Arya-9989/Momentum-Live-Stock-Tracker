@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,26 +28,39 @@ QUOTE = Quote(
 )
 
 
-def test_quote_header_escapes_and_structures() -> None:
-    markup = components.quote_header_html(QUOTE)
-    assert "<h1 " in markup  # the instrument name is the page heading
-    assert "Apple &lt;Inc.&gt;" in markup
-    assert "<Inc.>" not in markup
-    assert "$228.00" in markup
-    assert "Market open" in markup
-    assert 'datetime="2026-10-22T16:00:00+00:00"' in markup
-    assert f"height:{components.HEADER_HEIGHT}px" in markup  # reserved before CSS loads
+def test_quote_header_payload() -> None:
+    payload = components.quote_header_payload(QUOTE)
+    assert json.loads(json.dumps(payload)) == payload  # plain JSON for the component
+    # Names stay plain text: quote.js sets them with textContent, never as markup.
+    assert payload["name"] == "Apple <Inc.>"
+    assert payload["price"] == "$228.00"
+    assert payload["price_value"] == 228.0
+    assert payload["state"] == {"code": "REGULAR", "label": "Market open"}
+    assert payload["as_of"] == {
+        "iso": "2026-10-22T16:00:00+00:00",
+        "label": "As of Oct 22, 16:00 UTC",
+    }
 
 
 def test_day_change_uses_the_price_precision() -> None:
-    markup = components.quote_header_html(QUOTE)
-    assert "+$0.51 (+0.22%)" in markup  # not +$0.5077
-    assert 'class="mm-change up"' in markup
+    change = components.quote_header_payload(QUOTE)["change"]
+    assert change["text"] == "+$0.51 (+0.22%)"  # not +$0.5077
+    assert change["direction"] == "up"
+    assert change["value"] > 0
 
 
 def test_header_without_change_keeps_its_line() -> None:
-    markup = components.quote_header_html(Quote(symbol="X", name="X", price=1.0))
-    assert "mm-change flat" in markup
+    assert components.quote_header_payload(Quote(symbol="X", name="X", price=1.0))["change"] is None
+    js = (UI / "quote.js").read_text(encoding="utf-8")
+    assert r'"\u00a0"' in js  # a non-breaking space holds the line's height
+
+
+def test_payload_numbers_are_json_safe() -> None:
+    payload = components.quote_header_payload(
+        Quote(symbol="X", name="X", price=math.nan, previous_close=1.0)
+    )
+    assert payload["price_value"] is None
+    json.dumps(payload, allow_nan=False)
 
 
 def test_range_bar() -> None:
@@ -74,9 +89,9 @@ def test_rail_assets_ship_with_the_package() -> None:
 
 def test_a_change_that_prints_as_zero_is_flat() -> None:
     flat = Quote(symbol="X", name="X", currency="USD", price=100.0, previous_close=100.004)
-    markup = components.quote_header_html(flat)
-    assert 'class="mm-change flat"' in markup
-    assert "-$0.00" not in markup
+    change = components.quote_header_payload(flat)["change"]
+    assert change["direction"] == "flat"
+    assert "-$0.00" not in change["text"]
 
 
 def test_csv_keeps_full_precision_without_exponents() -> None:
@@ -107,8 +122,13 @@ def test_every_row_above_the_fold_has_a_fixed_height() -> None:
 
 
 def test_narrow_phones_keep_one_top_bar_row_and_the_state_badge() -> None:
-    markup = components.quote_header_html(QUOTE)
+    payload = components.quote_header_payload(QUOTE)
     # Type and currency (and their dots) are optional, the exchange and state are not.
-    assert markup.count("mm-opt") == 4
-    assert '<span class="mm-part">NasdaqGS</span>' in markup
-    assert "Market open" in markup
+    assert payload["meta"] == [
+        {"text": "NasdaqGS", "optional": False},
+        {"text": "Equity", "optional": True},
+        {"text": "USD", "optional": True},
+    ]
+    assert payload["state"]["label"] == "Market open"
+    css = (UI / "quote.css").read_text(encoding="utf-8")
+    assert re.search(r"max-width: 380px\)\s*\{[^}]*\.mm-opt\s*\{\s*display:\s*none", css)

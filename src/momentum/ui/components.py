@@ -7,6 +7,7 @@ before it is placed into custom markup. Markup builders that need no Streamlit
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from functools import cache
 from html import escape
@@ -54,6 +55,16 @@ def inject_styles() -> None:
 
 _RAIL = st.components.v2.component(
     "momentum_watchlist_rail", css=_asset("rail.css"), js=_asset("rail.js")
+)
+
+# The quote header and the KPI tiles render their own figures so a change of
+# symbol or range can roll the digits in place. numeric.js holds the shared
+# transition and is prepended to each module (inline modules cannot import it).
+_QUOTE = st.components.v2.component(
+    "momentum_quote_header", css=_asset("quote.css"), js=_asset("numeric.js") + _asset("quote.js")
+)
+_KPIS = st.components.v2.component(
+    "momentum_kpi_row", css=_asset("kpis.css"), js=_asset("numeric.js") + _asset("kpis.js")
 )
 
 # A zero-height page helper with two jobs:
@@ -141,7 +152,8 @@ def slot(key: str, height: int, *, first_run: bool, skeleton: Callable[[], None]
     skeleton). Later runs write straight into the container, at the same position,
     so the previous element stays on screen until its replacement arrives. An
     ``st.empty`` sent at the start of every run blanked the slot while data loaded,
-    and remounted whatever component was in it.
+    and remounted the components in it, which cost the quote header its number
+    transition whenever a fetch was slow.
     """
     box = st.container(key=key, height=height, border=False)
     if not first_run:
@@ -289,70 +301,68 @@ def _direction_class(change: float | None, decimals: int = 2) -> str:
     return "up" if change > 0 else "down"
 
 
-_SEP = '<span class="mm-sep{}" aria-hidden="true">·</span>'
+def quote_header_payload(quote: Quote) -> dict[str, Any]:
+    """JSON for the quote header component: symbol line, name, hero price, day change.
 
-
-def _meta_html(symbol: str, parts: Sequence[tuple[str | None, bool]]) -> str:
-    """``AAPL · NasdaqGS · Equity · USD``; optional parts (and their dots) step aside
-    on narrow phones so the market-state badge always fits."""
-    html = f'<span class="mm-sym">{escape(symbol)}</span>'
-    for text, optional in parts:
-        if text:
-            opt = " mm-opt" if optional else ""
-            html += _SEP.format(opt) + f'<span class="mm-part{opt}">{escape(text)}</span>'
-    return html
-
-
-def quote_header_html(quote: Quote) -> str:
-    """Symbol line, instrument name, the hero price and the day change."""
-    meta = _meta_html(
-        quote.symbol,
-        [
+    Strings are formatted here, exactly as they are shown; the numbers beside them
+    only decide which way a changed figure rolls (``numeric.js``).
+    """
+    meta = [
+        {"text": text, "optional": optional}
+        for text, optional in (
             (quote.exchange, False),
             ((quote.quote_type or "").replace("CRYPTOCURRENCY", "CRYPTO").title() or None, True),
             (None if quote.is_index else quote.currency, True),
-        ],
-    )
-    state = MARKET_STATES.get(quote.market_state or "")
-    badges = ""
-    if state:
-        code = escape(quote.market_state or "", quote=True)
-        badges += f'<span class="mm-state" data-state="{code}">{escape(state)}</span>'
-
-    change, pct = quote.change, quote.change_percent
-    change_html = '<p class="mm-change flat">&nbsp;</p>'
-    if change is not None:
+        )
+        if text
+    ]
+    label = MARKET_STATES.get(quote.market_state or "")
+    state = {"code": quote.market_state, "label": label} if label else None
+    change: dict[str, Any] | None = None
+    if quote.change is not None:
         places = fmt.price_decimals(quote.price, quote.quote_type)
-        absolute = fmt.format_change(change, quote.currency, quote.quote_type, decimals=places)
-        change_html = (
-            f'<p class="mm-change {_direction_class(change, places)}">'
-            f'<span class="mm-num">{escape(absolute)} ({escape(fmt.format_percent(pct))})</span>'
-            '<span class="mm-when">Today</span></p>'
+        absolute = fmt.format_change(
+            quote.change, quote.currency, quote.quote_type, decimals=places
         )
-    as_of = ""
+        change = {
+            "text": f"{absolute} ({fmt.format_percent(quote.change_percent)})",
+            "value": _finite(quote.change),
+            "direction": _direction_class(quote.change, places),
+        }
+    as_of = None
     if quote.as_of is not None:
-        as_of = (
-            f'<time class="mm-asof" datetime="{quote.as_of.isoformat()}">'
-            f"As of {escape(quote.as_of.strftime('%b %d, %H:%M UTC'))}</time>"
-        )
-    price = fmt.format_price(quote.price, quote.currency, quote.quote_type)
-    return (
-        f'<header class="mm-quote" style="height:{HEADER_HEIGHT}px">'
-        f'<p class="mm-meta">{meta}{badges}</p>'
-        f'<h1 class="mm-name" title="{escape(quote.name, quote=True)}">{escape(quote.name)}</h1>'
-        f'<p class="mm-price"><span class="mm-num">{escape(price)}</span>{as_of}</p>'
-        f"{change_html}</header>"
-    )
+        as_of = {
+            "iso": quote.as_of.isoformat(),
+            "label": f"As of {quote.as_of.strftime('%b %d, %H:%M UTC')}",
+        }
+    return {
+        "symbol": quote.symbol,
+        "meta": meta,
+        "state": state,
+        "name": quote.name,
+        "price": fmt.format_price(quote.price, quote.currency, quote.quote_type),
+        "price_value": _finite(quote.price),
+        "as_of": as_of,
+        "change": change,
+    }
+
+
+def _finite(value: float | None) -> float | None:
+    """A number JSON can carry (NaN and infinities become ``None``)."""
+    return value if value is not None and math.isfinite(value) else None
 
 
 def quote_header(quote: Quote) -> None:
-    st.html(quote_header_html(quote))
+    # A stable key keeps the same component (and DOM) across reruns, so a new
+    # symbol's figures roll in place. The height is the slot's, reserved up front.
+    _QUOTE(key="quote_header", data=quote_header_payload(quote), height=HEADER_HEIGHT)
 
 
 def error_header_html(symbol: str, copy: Copy) -> str:
     """The quote header's place when a symbol cannot be shown: what happened, in
     headline type, and the next step underneath. Same fixed height."""
-    meta = _meta_html(symbol.strip().upper(), []) if symbol.strip() else "&nbsp;"
+    shown = symbol.strip().upper()
+    meta = f'<span class="mm-sym">{escape(shown)}</span>' if shown else "&nbsp;"
     return (
         f'<header class="mm-quote mm-quote-error" role="alert" style="height:{HEADER_HEIGHT}px">'
         f'<p class="mm-meta">{meta}</p>'
@@ -368,19 +378,43 @@ def error_header(symbol: str, copy: Copy) -> None:
 # --------------------------------------------------------------------- KPIs and stats
 
 
+def kpi_tone(kpi: Kpi) -> tuple[str, str]:
+    """``(tone, arrow)`` of a delta, as ``st.metric`` colours it: a leading minus
+    points the arrow down; ``normal`` paints down red and up green, ``inverse``
+    swaps them and ``off`` keeps the delta grey."""
+    arrow = "down" if (kpi.delta or "").startswith(("-", "\N{MINUS SIGN}")) else "up"
+    if kpi.delta_color == "off":
+        return "off", arrow
+    if kpi.delta_color == "inverse":
+        return ("up" if arrow == "down" else "down"), arrow
+    return arrow, arrow
+
+
+def kpi_payload(kpis: Sequence[Kpi]) -> dict[str, list[dict[str, Any]]]:
+    """JSON for the KPI tiles component."""
+    cards = []
+    for kpi in kpis:
+        tone, arrow = kpi_tone(kpi)
+        cards.append(
+            {
+                "label": kpi.label,
+                "value": kpi.value,
+                "value_number": _finite(kpi.value_number),
+                "delta": kpi.delta,
+                "delta_number": _finite(kpi.delta_number),
+                "tone": tone,
+                "arrow": arrow,
+                "help": kpi.help,
+            }
+        )
+    return {"cards": cards}
+
+
 def kpi_row(kpis: list[Kpi]) -> None:
-    # The keyed container lets styles.css lay the cards out two-up on phones.
+    # The keyed container gives the row its spacing (styles.css); the component
+    # keeps its DOM across reruns, so new figures roll in place.
     with st.container(key="kpi_row"):
-        for column, kpi in zip(st.columns(len(kpis), gap="small"), kpis, strict=True):
-            with column:
-                st.metric(
-                    kpi.label,
-                    kpi.value,
-                    kpi.delta,
-                    delta_color=kpi.delta_color,
-                    help=kpi.help,
-                    height="stretch",
-                )
+        _KPIS(key="kpi_tiles", data=kpi_payload(kpis))
 
 
 def range_bar_html(

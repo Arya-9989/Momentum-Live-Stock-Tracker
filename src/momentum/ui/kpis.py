@@ -28,6 +28,10 @@ class Kpi:
     delta: str | None = None
     delta_color: DeltaColor = "normal"
     help: str | None = None
+    # The numbers behind ``value`` and ``delta``: they only tell the tile which
+    # way a changed figure rolls, never what it shows.
+    value_number: float | None = None
+    delta_number: float | None = None
 
 
 def periods_per_year(interval: str, quote_type: str | None) -> int | None:
@@ -52,6 +56,8 @@ def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: st
             # A move that prints as 0.00% gets no green "up" arrow.
             "off" if ret is not None and fmt.rounds_to_zero(ret, 2) else "normal",
             help="Change from the first to the last bar in the selected range.",
+            value_number=change,
+            delta_number=ret,
         )
     ]
 
@@ -62,20 +68,27 @@ def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: st
         fmt.format_percent(vol, 1, signed=False),
         help="Annualised standard deviation of bar-to-bar returns over the range "
         "(daily or longer bars only).",
+        value_number=vol,
     )
     drawdown = ind.max_drawdown(close)
 
     if qtype in VALUATION_QUOTE_TYPES and (quote.market_cap or quote.trailing_pe):
         volume_delta = None
+        ratio = None
         if quote.volume and quote.average_volume:
             ratio = (quote.volume / quote.average_volume - 1) * 100
             volume_delta = f"{fmt.format_percent(ratio, 0)} vs avg"
         cards += [
-            Kpi("Market cap", fmt.format_market_cap(quote.market_cap, currency)),
+            Kpi(
+                "Market cap",
+                fmt.format_market_cap(quote.market_cap, currency),
+                value_number=quote.market_cap,
+            ),
             Kpi(
                 "P/E (TTM)",
                 fmt.format_ratio(quote.trailing_pe),
                 help="Trailing twelve-month price/earnings. Blank when earnings are negative.",
+                value_number=quote.trailing_pe,
             ),
             Kpi(
                 "Volume",
@@ -83,17 +96,28 @@ def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: st
                 volume_delta,
                 "off",
                 help="Latest session volume compared with the 3-month average.",
+                value_number=quote.volume,
+                delta_number=ratio,
             ),
             vol_card,
         ]
     else:
         cards += [
-            Kpi("Day high", fmt.format_price(quote.day_high, currency, qtype)),
-            Kpi("Day low", fmt.format_price(quote.day_low, currency, qtype)),
+            Kpi(
+                "Day high",
+                fmt.format_price(quote.day_high, currency, qtype),
+                value_number=quote.day_high,
+            ),
+            Kpi(
+                "Day low",
+                fmt.format_price(quote.day_low, currency, qtype),
+                value_number=quote.day_low,
+            ),
             Kpi(
                 "Drawdown",
                 fmt.format_percent(drawdown, 1),
                 help="Largest peak-to-trough fall within the selected range.",
+                value_number=drawdown,
             ),
             vol_card,
         ]

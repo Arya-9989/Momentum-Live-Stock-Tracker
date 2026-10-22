@@ -6,8 +6,10 @@ these tests never touch the network.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yfinance
@@ -48,21 +50,38 @@ def component_names(at: AppTest) -> list[str]:
     return [str(el.proto.component_name) for el in at.get("bidi_component")]
 
 
+def component_data(at: AppTest, name: str) -> Any:
+    """The JSON a v2 component was mounted with (its rendered content)."""
+    for el in at.get("bidi_component"):
+        if el.proto.component_name == name:
+            return json.loads(el.proto.json)
+    raise AssertionError(f"{name} not rendered")
+
+
+def kpi_labels(at: AppTest) -> list[str]:
+    return [card["label"] for card in component_data(at, "momentum_kpi_row")["cards"]]
+
+
 def test_overview_renders_kpis_chart_and_stats() -> None:
     at = run()
     assert not at.exception
-    assert "Apple Inc." in html_text(at)
-    assert [m.label for m in at.metric][:2] == ["6M return", "Market cap"]
+    assert component_data(at, "momentum_quote_header")["name"] == "Apple Inc."
+    assert kpi_labels(at)[:2] == ["6M return", "Market cap"]
     assert len(at.get("plotly_chart")) == 1
     assert "Demo mode" in html_text(at)  # one-line notice, shown whenever demo data is on
-    assert component_names(at) == ["momentum_watchlist_rail", "momentum_theme_watch"]
+    assert component_names(at) == [
+        "momentum_quote_header",
+        "momentum_kpi_row",
+        "momentum_watchlist_rail",
+        "momentum_theme_watch",
+    ]
 
 
 def test_index_symbol_from_url() -> None:
     at = run(ticker="^NSEI", range="1Y")
     assert not at.exception
-    assert "NIFTY 50" in html_text(at)
-    assert "Drawdown" in [m.label for m in at.metric]
+    assert component_data(at, "momentum_quote_header")["name"] == "NIFTY 50"
+    assert "Drawdown" in kpi_labels(at)
 
 
 def test_changing_range_resets_unsupported_interval() -> None:
@@ -135,3 +154,18 @@ def test_compare_and_watchlist_tabs() -> None:
     assert not watch.exception
     table = watch.dataframe[0].value
     assert "RELIANCE.NS" in table["Symbol"].tolist()
+
+
+def test_figures_keep_their_components_across_reruns() -> None:
+    """A new symbol updates the same header and KPI components (stable keys), which
+    is what lets their figures roll in place instead of remounting."""
+    at = run()
+    before = {el.proto.component_name: el.proto.id for el in at.get("bidi_component")}
+    at.text_input(key="ticker").set_value("MSFT").run()
+    assert not at.exception
+    after = {el.proto.component_name: el.proto.id for el in at.get("bidi_component")}
+    for name in ("momentum_quote_header", "momentum_kpi_row"):
+        assert after[name] == before[name]
+    header = component_data(at, "momentum_quote_header")
+    assert header["symbol"] == "MSFT"
+    assert header["price"].startswith("$")
