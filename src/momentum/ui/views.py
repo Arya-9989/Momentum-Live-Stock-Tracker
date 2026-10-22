@@ -285,7 +285,7 @@ def _details(
     with right, st.container(key="about_section"):
         components.section_title("About")
         try:
-            profile = data.parse_profile(data.cached_info(symbol, demo))
+            profile = data.cached_profile(symbol, demo)
         except DataError:
             profile = data.Profile()
         components.profile_card(profile, quote)
@@ -365,7 +365,7 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
 
     option = config.get_range(range_label)
     interval = "1d" if "1d" in option.intervals else option.default_interval
-    closes, errors = data.cached_closes(tuple(symbols), option.period, interval, demo)
+    closes, errors, _ = data.cached_closes(tuple(symbols), option.period, interval, demo)
     for failed, message in errors.items():
         st.warning(f"**{failed}**: {message}")
     if closes.empty:
@@ -461,7 +461,7 @@ def watchlist_rail(selected: str | None, demo: bool) -> None:
         components.notice("Your watchlist is empty. Add symbols in the Watchlist tab.")
         return
     results = data.cached_quotes(tuple(symbols), demo)
-    closes, _ = data.cached_closes(tuple(symbols), "1mo", "1d", demo)
+    closes = data.cached_closes(tuple(symbols), "1mo", "1d", demo).frame
     components.watchlist_rail(rail.rail_rows(results, closes, selected), _open_from_rail)
 
 
@@ -575,7 +575,7 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
         return
 
     results = data.cached_quotes(tuple(symbols), demo)
-    closes, _ = data.cached_closes(tuple(symbols), "1mo", "1d", demo)
+    closes = data.cached_closes(tuple(symbols), "1mo", "1d", demo).frame
     table = watchlist_frame(results, closes)
     st.session_state["_watchlist_symbols"] = table["Symbol"].tolist()
 

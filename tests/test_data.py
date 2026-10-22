@@ -17,6 +17,7 @@ from momentum.data import (
     InvalidSymbolError,
     NoDataError,
     Quote,
+    RateLimitError,
     YahooProvider,
 )
 
@@ -268,7 +269,7 @@ def test_all_nan_history_is_no_data(fake_yf: type[FakeTicker]) -> None:
     [
         (yfinance.exceptions.YFPricesMissingError("ZZZZ", "possibly delisted"), NoDataError),
         (yfinance.exceptions.YFTzMissingError("ZZZZ"), NoDataError),
-        (yfinance.exceptions.YFRateLimitError(), DataSourceError),
+        (yfinance.exceptions.YFRateLimitError(), RateLimitError),
         (ConnectionError("Failed to resolve query1.finance.yahoo.com"), DataSourceError),
         (TimeoutError("timed out"), DataSourceError),
         (RuntimeError("HTTP Error 404: Not Found"), NoDataError),
@@ -284,8 +285,16 @@ def test_upstream_errors_are_translated(
 
 def test_rate_limit_message_is_user_friendly(fake_yf: type[FakeTicker]) -> None:
     fake_yf.infos["AAPL"] = yfinance.exceptions.YFRateLimitError()
-    with pytest.raises(DataSourceError, match="rate-limiting"):
+    with pytest.raises(RateLimitError, match="rate-limiting"):
         YahooProvider().info("AAPL")
+
+
+def test_network_message_points_users_at_demo_data_not_env_vars(fake_yf: type[FakeTicker]) -> None:
+    fake_yf.infos["AAPL"] = ConnectionError("offline")
+    with pytest.raises(DataSourceError) as caught:
+        YahooProvider().info("AAPL")
+    assert "Demo data" in str(caught.value)
+    assert "MOMENTUM_DEMO" not in str(caught.value)
 
 
 def test_load_info_rejects_empty_payload(fake_yf: type[FakeTicker]) -> None:
@@ -306,21 +315,23 @@ def test_load_quotes_isolates_failures(fake_yf: type[FakeTicker]) -> None:
     assert results[1].error is not None
     assert "reach Yahoo" in results[1].error
     assert results[2].error is not None
+    assert [r.transient for r in results] == [False, True, False]
 
 
 def test_load_closes_aligns_series_and_collects_errors(fake_yf: type[FakeTicker]) -> None:
     fake_yf.histories["A"] = yahoo_frame([1.0, 2.0, 3.0])
     fake_yf.histories["B"] = yahoo_frame([10.0, 20.0])
     fake_yf.histories["C"] = pd.DataFrame()
-    closes, errors = data.load_closes(YahooProvider(), ["A", "B", "C"], "1mo", "1d")
+    closes, errors, transient = data.load_closes(YahooProvider(), ["A", "B", "C"], "1mo", "1d")
     assert list(closes.columns) == ["A", "B"]
     assert len(closes) == 3
     assert np.isnan(closes["B"].iloc[-1])
     assert set(errors) == {"C"}
+    assert transient == frozenset()  # "no data" is definitive, not worth a retry
 
 
 def test_load_closes_all_failed_returns_empty_frame(fake_yf: type[FakeTicker]) -> None:
-    closes, errors = data.load_closes(YahooProvider(), ["Q"], "1mo", "1d")
+    closes, errors, _ = data.load_closes(YahooProvider(), ["Q"], "1mo", "1d")
     assert closes.empty
     assert "Q" in errors
 
@@ -376,3 +387,55 @@ def test_visible_window_passes_through_unwarmed_periods(period: str) -> None:
 
 def test_visible_window_empty() -> None:
     assert data.visible_window(pd.DataFrame(), "6mo").empty
+
+
+def test_load_closes_marks_network_failures_transient(fake_yf: type[FakeTicker]) -> None:
+    fake_yf.histories["A"] = yahoo_frame([1.0, 2.0])
+    fake_yf.histories["DOWN"] = ConnectionError("offline")
+    fake_yf.histories["SLOW"] = yfinance.exceptions.YFRateLimitError()
+    result = data.load_closes(YahooProvider(), ["A", "DOWN", "SLOW"], "1mo", "1d")
+    assert list(result.frame.columns) == ["A"]
+    assert result.transient == frozenset({"DOWN", "SLOW"})
+
+
+def test_cached_quotes_retry_transient_failures(fake_yf: type[FakeTicker]) -> None:
+    """A rate limit must not be pinned for the quote TTL: the next rerun asks again."""
+    data.clear_caches()
+    fake_yf.infos["AAPL"] = yfinance.exceptions.YFRateLimitError()
+    first = data.cached_quotes(("AAPL",), demo=False)
+    assert first[0].quote is None
+    assert first[0].transient
+    fake_yf.infos["AAPL"] = AAPL_INFO
+    second = data.cached_quotes(("AAPL",), demo=False)
+    assert second[0].quote is not None
+
+
+def test_cached_quotes_keep_definitive_answers(fake_yf: type[FakeTicker]) -> None:
+    data.clear_caches()
+    fake_yf.infos["AAPL"] = AAPL_INFO
+    fake_yf.infos["NOPE"] = {}
+    data.cached_quotes(("AAPL", "NOPE"), demo=False)
+    fake_yf.infos["AAPL"] = ConnectionError("offline")  # would fail if fetched again
+    again = data.cached_quotes(("AAPL", "NOPE"), demo=False)
+    assert again[0].quote is not None
+    assert again[1].error is not None
+
+
+def test_cached_closes_retry_transient_failures(fake_yf: type[FakeTicker]) -> None:
+    data.clear_caches()
+    fake_yf.histories["A"] = ConnectionError("offline")
+    assert data.cached_closes(("A",), "1y", "1d", demo=False).frame.empty
+    fake_yf.histories["A"] = yahoo_frame([1.0, 2.0])
+    assert list(data.cached_closes(("A",), "1y", "1d", demo=False).frame.columns) == ["A"]
+    calls = len(fake_yf.calls)
+    data.cached_closes(("A",), "1y", "1d", demo=False)  # a success is cached
+    assert len(fake_yf.calls) == calls
+
+
+def test_cached_profile_outlives_a_failing_quote(fake_yf: type[FakeTicker]) -> None:
+    data.clear_caches()
+    fake_yf.infos["AAPL"] = {**AAPL_INFO, "sector": "Technology"}
+    assert data.cached_profile("AAPL", demo=False).sector == "Technology"
+    data.cached_info.clear()  # the 60 s quote expires...
+    fake_yf.infos["AAPL"] = ConnectionError("offline")  # ...and Yahoo is down
+    assert data.cached_profile("AAPL", demo=False).sector == "Technology"

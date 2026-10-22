@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final, Protocol
+from typing import Any, Final, NamedTuple, Protocol
 
 import pandas as pd
 import streamlit as st
@@ -52,7 +52,14 @@ class NoDataError(DataError):
 
 
 class DataSourceError(DataError):
-    """The source could not be reached or refused the request (network, rate limit)."""
+    """The source could not be reached or refused the request (network, rate limit).
+
+    These failures are transient: they are never cached, so the next rerun retries.
+    """
+
+
+class RateLimitError(DataSourceError):
+    """Yahoo Finance is throttling requests from this server."""
 
 
 # --------------------------------------------------------------------------- models
@@ -127,6 +134,15 @@ class QuoteResult:
     symbol: str
     quote: Quote | None = None
     error: str | None = None
+    transient: bool = False  # a network/rate-limit failure worth retrying soon
+
+
+class Closes(NamedTuple):
+    """Close prices for several symbols on one index, plus per-symbol failures."""
+
+    frame: pd.DataFrame
+    errors: dict[str, str]
+    transient: frozenset[str] = frozenset()  # symbols whose failure is worth retrying
 
 
 # --------------------------------------------------------------------------- providers
@@ -175,7 +191,7 @@ def _translate_yahoo_error(symbol: str, exc: Exception) -> DataError:
     name = type(exc).__name__
     text = str(exc).lower()
     if name == "YFRateLimitError" or "rate limit" in text or "too many requests" in text:
-        return DataSourceError("Yahoo Finance is rate-limiting requests. Try again in a minute.")
+        return RateLimitError("Yahoo Finance is rate-limiting requests. Try again in a minute.")
     if name in {"YFPricesMissingError", "YFTzMissingError", "YFTickerMissingError"} or (
         "delisted" in text or "no data found" in text or "not found" in text or "404" in text
     ):
@@ -187,8 +203,8 @@ def _translate_yahoo_error(symbol: str, exc: Exception) -> DataError:
         return NoDataError(f"Yahoo Finance does not offer that range/interval for '{symbol}'.")
     logger.warning("Yahoo Finance request for %s failed: %r", symbol, exc)
     return DataSourceError(
-        "Could not reach Yahoo Finance. Check your connection and try again "
-        "(or run with MOMENTUM_DEMO=1 for offline demo data)."
+        "Could not reach Yahoo Finance. Check your connection and try again, "
+        "or turn on Demo data to keep exploring offline."
     )
 
 
@@ -415,7 +431,7 @@ def load_quotes(
         try:
             return QuoteResult(symbol, quote=parse_quote(symbol, load_info(provider, symbol)))
         except DataError as exc:
-            return QuoteResult(symbol, error=str(exc))
+            return QuoteResult(symbol, error=str(exc), transient=isinstance(exc, DataSourceError))
 
     return _map_concurrently(one, list(symbols), max_workers)
 
@@ -427,24 +443,27 @@ def load_closes(
     interval: str,
     *,
     max_workers: int = _MAX_WORKERS,
-) -> tuple[pd.DataFrame, dict[str, str]]:
+) -> Closes:
     """Close prices for several symbols aligned on one index, plus per-symbol errors."""
 
-    def one(symbol: str) -> tuple[str, pd.Series | str]:
+    def one(symbol: str) -> tuple[str, pd.Series | DataError]:
         try:
             return symbol, load_history(provider, symbol, period, interval)["Close"]
         except DataError as exc:
-            return symbol, str(exc)
+            return symbol, exc
 
     series: dict[str, pd.Series] = {}
     errors: dict[str, str] = {}
+    transient: set[str] = set()
     for symbol, result in _map_concurrently(one, list(symbols), max_workers):
-        if isinstance(result, str):
-            errors[symbol] = result
+        if isinstance(result, DataError):
+            errors[symbol] = str(result)
+            if isinstance(result, DataSourceError):
+                transient.add(symbol)
         else:
             series[symbol] = result
     closes = pd.DataFrame(series).sort_index() if series else pd.DataFrame()
-    return closes, errors
+    return Closes(closes, errors, frozenset(transient))
 
 
 def _map_concurrently[T, R](func: Callable[[T], R], items: list[T], max_workers: int) -> list[R]:
@@ -457,6 +476,11 @@ def _map_concurrently[T, R](func: Callable[[T], R], items: list[T], max_workers:
 # --------------------------------------------------------------------------- cached API
 # Arguments are plain hashables so Streamlit can key the cache on them; the
 # provider is rebuilt inside, which is free.
+#
+# Raised errors are never memoised by st.cache_data. Batch loaders return
+# per-symbol failures as values instead, so their wrappers drop the cache entry
+# whenever a failure is transient: the result is shown once and the next rerun
+# fetches again, rather than pinning a rate-limit message for the whole TTL.
 
 
 @st.cache_data(ttl=config.TTL_INTRADAY, show_spinner=False, max_entries=256)
@@ -480,18 +504,44 @@ def cached_info(symbol: str, demo: bool) -> dict[str, Any]:
     return dict(load_info(get_provider(demo), symbol))
 
 
+@st.cache_data(ttl=config.TTL_PROFILE, show_spinner=False, max_entries=256)
+def cached_profile(symbol: str, demo: bool) -> Profile:
+    """Company profiles barely change, so they outlive the 60 s quote that carries them."""
+    return parse_profile(cached_info(symbol, demo))
+
+
 @st.cache_data(ttl=config.TTL_QUOTE, show_spinner=False, max_entries=64)
-def cached_quotes(symbols: tuple[str, ...], demo: bool) -> list[QuoteResult]:
+def _quotes(symbols: tuple[str, ...], demo: bool) -> list[QuoteResult]:
     return load_quotes(get_provider(demo), symbols)
 
 
+def cached_quotes(symbols: tuple[str, ...], demo: bool) -> list[QuoteResult]:
+    results = _quotes(symbols, demo)
+    if any(r.transient for r in results):
+        _quotes.clear(symbols, demo)
+    return results
+
+
 @st.cache_data(ttl=config.TTL_DAILY, show_spinner=False, max_entries=64)
-def cached_closes(
-    symbols: tuple[str, ...], period: str, interval: str, demo: bool
-) -> tuple[pd.DataFrame, dict[str, str]]:
+def _closes(symbols: tuple[str, ...], period: str, interval: str, demo: bool) -> Closes:
     return load_closes(get_provider(demo), symbols, period, interval)
 
 
+def cached_closes(symbols: tuple[str, ...], period: str, interval: str, demo: bool) -> Closes:
+    """Daily-or-longer closes for several symbols (15 min TTL; transient failures retried)."""
+    result = _closes(symbols, period, interval, demo)
+    if result.transient:
+        _closes.clear(symbols, period, interval, demo)
+    return result
+
+
 def clear_caches() -> None:
-    for func in (_history_short_ttl, _history_long_ttl, cached_info, cached_quotes, cached_closes):
+    for func in (
+        _history_short_ttl,
+        _history_long_ttl,
+        cached_info,
+        cached_profile,
+        _quotes,
+        _closes,
+    ):
         func.clear()
