@@ -5,9 +5,9 @@
 
 ## Context
 
-Plotly drew both charts. On Lighthouse's mobile profile, Overview and Compare scored 41 to 65,
-against 67 for a bare Streamlit page served the same way (`serve.py`) and 55 for plain
-`streamlit run`. Almost all of the gap was Plotly:
+Plotly drew both charts. On Lighthouse's mobile profile, Overview and Compare scored 42, while
+the Watchlist, which has no Plotly chart, scored 65, against 67 for a bare Streamlit page served
+the same way (`serve.py`) and 55 for plain `streamlit run`. Almost all of the gap was Plotly:
 
 - a 4.6 MB chunk (1.1 MB gzipped), loaded on every visit to those views;
 - one 200 to 260 ms long task to parse it and draw the figure.

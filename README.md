@@ -239,45 +239,46 @@ uv run streamlit run serve.py           # as in production: gzip, robots.txt, he
 
 ## Performance
 
-Lighthouse 13.5 scores for the Docker image on a local machine (median of five runs, default
-simulated throttling, desktop and mobile presets), next to a bare `st.write("hi")` app in the
-same image:
+The charts used to be Plotly; they are now TradingView Lightweight Charts
+([ADR 0005](docs/adr/0005-lightweight-charts.md)). Lighthouse 13.5 measured both Docker images on
+23 Oct 2026, in demo mode (identical data), with default simulated throttling. The machine was
+shared with other workloads, so runs were **interleaved in pairs** (Plotly image, then
+Lightweight Charts image): five pairs on mobile, three on desktop. Medians are shown:
 
-| Page | Performance (desktop / mobile) | Accessibility | Best practices | SEO |
-| --- | --- | --- | --- | --- |
-| Bare Streamlit, plain `streamlit run` | 73 / 55 | 100 | 100 | 82 |
-| Bare Streamlit through `serve.py` | 95 / 67 | 100 | 100 | 100 |
-| Overview | 88 / 42 | 100 | 100 | 100 |
-| Compare | 87 / 42 | 100 | 100 | 100 |
-| Watchlist | 94 / 65 | 100 | 100 | 100 |
+| Page | Performance, desktop | Performance, mobile | Blocking time, mobile | Page weight | Worst CLS |
+| --- | --- | --- | --- | --- | --- |
+| Overview | 86 → **91** | 42 → **62** | 910 ms → 0 ms | 2,283 → 1,309 KiB | 0.005 → 0.014 |
+| Compare | 87 → **94** | 42 → **65** | 1,071 ms → 71 ms | 2,820 → 1,848 KiB | 0.003 → 0.005 |
+| Bare `st.write("hi")` through `serve.py`, same image | 95 | 67 | 0 ms | | |
 
-Before `serve.py` the three views scored 60 / 32, 60 / 30 and 71 / 53, with SEO 82.
+Mobile scores per run: Overview 39–44 → 62–64 and Compare 41–43 → 61–66. On desktop, Overview
+went from 74–87 to 90–91 and Compare from 84–88 to 92–94.
 
-The motion described under Design costs no score: with the image before and after it measured
-side by side (runs interleaved, median of five, 23 Oct 2026), every view stays within one point
-on desktop and mobile, the Overview's largest contentful paint is still the hero price, and the
-median CLS is at most 0.005.
+- **What changed.** Plotly's chunk is gone: 4.6 MB raw, 1.1 MB compressed, plus a 200–260 ms
+  task to parse it and draw. The chart bundle is 183 KB raw and 60 KB gzipped, served as a
+  cacheable file from the package's asset directory. Compare is now within two points of the bare
+  app on mobile.
+- **What did not.** On both images the Overview's largest contentful paint is the hero price, not
+  the chart. On the mobile profile it paints at about 7.7 s either way, after Streamlit's own
+  5.3 s to first paint, so the chart library does not move it. Mobile performance therefore stays
+  under 90. Even the bare app stops at 67: nothing paints until Streamlit's entry bundle has run
+  and its websocket session has started (slow 4G with a 4x CPU slowdown).
+- **Layout shift.** The worst single run across all pairs is 0.014, well under the 0.05 bar. The
+  chart's figure reserves its size inline, before its stylesheet loads.
+
+Before `serve.py` existed, the three views scored 60 / 32, 60 / 30 and 71 / 53 (desktop /
+mobile), with SEO 82. A bare app under plain `streamlit run` scores 73 / 55.
 
 `serve.py` runs the app through `st.App` with `momentum.server` in front of it:
 
 - **Compression.** Streamlit serves its frontend bundle uncompressed. The image build writes a
   brotli copy of every asset (20.9 MB to 5.1 MB), served to browsers that accept it. Other
-  browsers get gzip, compressed once per process and cached. Plotly's chunk goes from 4.6 MB to
-  1.1 MB.
+  browsers get gzip, compressed once per process and cached.
 - **Document.** It sets a real title and a meta description, drops a preload of a font the theme
   never uses (166 KB), and adds one critical CSS rule. That rule removes the shift as
   Streamlit's initial narrow shell turns wide (desktop CLS 0.02–0.047 down to at most 0.003).
-- **robots.txt.** Streamlit answers `/robots.txt` with its HTML page; `serve.py` returns a real
-  one.
-
-What remains belongs to the framework, as the bare-app rows show:
-
-- Streamlit renders entirely in the browser, so nothing paints until its entry bundle has run and
-  the websocket session has started. On Lighthouse's mobile profile (slow 4G, 4x CPU slowdown)
-  that takes about 5.3 s even for the bare app, which caps it at 67.
-- On Overview and Compare almost all of the remaining blocking time is one 200–260 ms task in
-  Plotly's chunk, which loads and draws the chart. The Watchlist has no Plotly chart and scores
-  within two points of the bare app.
+- **robots.txt and /readyz.** Streamlit answers `/robots.txt` with its HTML page; `serve.py` returns a
+  real one. `/readyz` reports whether the store is migrated and the alert worker is running.
 
 ## Configuration
 
