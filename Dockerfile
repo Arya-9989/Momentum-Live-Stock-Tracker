@@ -44,7 +44,7 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app streamlit_app.py ./
+COPY --chown=app:app streamlit_app.py serve.py ./
 COPY --chown=app:app .streamlit ./.streamlit
 
 USER app
@@ -53,4 +53,6 @@ EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
 
-CMD ["streamlit", "run", "streamlit_app.py"]
+# serve.py wraps streamlit_app.py in st.App: gzip for the static bundle, a real
+# robots.txt, title and description (see src/momentum/server.py).
+CMD ["streamlit", "run", "serve.py"]

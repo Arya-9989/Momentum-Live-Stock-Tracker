@@ -85,6 +85,30 @@ jobs:
           test "$(docker exec momentum id -u)" != "0"
           curl --fail --silent http://localhost:8501/_stcore/health
 
+      - name: App renders inside the image
+        # /_stcore/health never runs the script, so also render it headlessly:
+        # this catches missing package assets (rail.js, styles.css) and import errors.
+        run: |
+          docker exec momentum python -c "
+          from streamlit.testing.v1 import AppTest
+          at = AppTest.from_file('streamlit_app.py', default_timeout=120).run()
+          assert not at.exception, at.exception
+          assert len(at.get('plotly_chart')) == 1
+          assert [m.label for m in at.metric][:2] == ['6M return', 'Market cap']
+          print('rendered')
+          "
+
+      - name: Production HTTP layer
+        # serve.py: real robots.txt and title, gzip for the static bundle.
+        run: |
+          robots="$(curl --fail --silent http://localhost:8501/robots.txt)"
+          grep -q "User-agent: \*" <<< "$robots"
+          page="$(curl --fail --silent http://localhost:8501/)"
+          grep -q "<title>Momentum" <<< "$page"
+          js="$(grep -o 'static/js/index[^"]*' <<< "$page" | head -n 1)"
+          headers="$(curl --fail --silent -D - -o /dev/null -H "Accept-Encoding: gzip" "http://localhost:8501/$js")"
+          grep -qi "content-encoding: gzip" <<< "$headers"
+
       - name: Container logs
         if: always()
         run: docker logs momentum || true
