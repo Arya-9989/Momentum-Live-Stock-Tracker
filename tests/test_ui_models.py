@@ -123,6 +123,8 @@ def test_price_units() -> None:
     assert views.price_units(EQUITY) == ("$", "")
     assert views.price_units(INDEX) == ("", "")
     assert views.price_units(Quote(symbol="VOD.L", name="Vodafone", currency="GBp")) == ("", "p")
+    fx = Quote(symbol="EURUSD=X", name="EUR/USD", currency="USD", quote_type="CURRENCY")
+    assert views.price_units(fx) == ("", "")
 
 
 def test_chart_alt_text_states_the_range_move() -> None:
@@ -154,3 +156,27 @@ def test_indicator_settings_from_controls() -> None:
     assert settings == ind.IndicatorSettings(
         sma_windows=(20,), ema_spans=(26,), bollinger=True, rsi=True, macd=False
     )
+
+
+@pytest.mark.parametrize("quote_type", ["CRYPTOCURRENCY", "ETF", "CURRENCY", "FUTURE"])
+def test_only_shares_get_valuation_cards(quote_type: str) -> None:
+    # Yahoo attaches a market cap to BTC-USD and a P/E to SPY; neither is a share.
+    quote = Quote(
+        symbol="X",
+        name="X",
+        currency="USD",
+        quote_type=quote_type,
+        price=100.0,
+        market_cap=1.6e12,
+        trailing_pe=24.0,
+        day_low=99.0,
+        day_high=101.0,
+    )
+    labels = [k.label for k in build_kpis(quote, history([90.0, 95.0, 100.0]), "1Y", "1d")]
+    assert labels == ["1Y return", "Day high", "Day low", "Drawdown", "Volatility"]
+
+
+def test_flat_range_return_has_no_up_arrow() -> None:
+    kpis = build_kpis(EQUITY, history([100.0, 100.001]), "1D", "5m")
+    assert kpis[0].delta == "0.00%"
+    assert kpis[0].delta_color == "off"

@@ -5,6 +5,7 @@ import pytest
 
 from momentum import data
 from momentum.demo import DemoProvider, synthetic_history, synthetic_info
+from momentum.formatting import format_price
 
 TODAY = pd.Timestamp("2025-06-13")  # a Friday
 
@@ -54,3 +55,12 @@ def test_unknown_symbols_get_synthetic_data_but_invalid_ones_fail() -> None:
     assert not provider.history("ACME", "1mo", "1d").empty
     with pytest.raises(data.NoDataError):
         provider.history("INVALID", "1mo", "1d")
+
+
+def test_demo_fx_quotes_as_a_rate() -> None:
+    quote = data.parse_quote("EURUSD=X", synthetic_info("EURUSD=X"))
+    assert quote.quote_type == "CURRENCY"
+    text = format_price(quote.price, quote.currency, quote.quote_type)
+    assert "$" not in text
+    assert len(text.split(".")[1]) == 4
+    assert (synthetic_history("EURUSD=X", "1mo", "1d")["Volume"] == 0).all()

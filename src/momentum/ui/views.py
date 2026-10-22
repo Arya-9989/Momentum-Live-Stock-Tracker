@@ -148,10 +148,13 @@ def chart_height(settings: ind.IndicatorSettings) -> int:
 
 
 def price_units(quote: Quote) -> tuple[str, str]:
-    """Axis prefix/suffix: currency symbol, pence/cents suffix, or nothing for indices."""
+    """Axis prefix/suffix: currency symbol, pence/cents suffix, or nothing for
+    index levels and FX rates."""
+    if fmt.is_unitless(quote.quote_type):
+        return "", ""
     if quote.currency in fmt.MINOR_UNIT_CURRENCIES:
         return "", fmt.MINOR_UNIT_SUFFIXES[quote.currency]
-    return ("" if quote.is_index else fmt.currency_symbol(quote.currency)), ""
+    return fmt.currency_symbol(quote.currency), ""
 
 
 def chart_alt(quote: Quote, history: pd.DataFrame, controls: ChartControls) -> str:

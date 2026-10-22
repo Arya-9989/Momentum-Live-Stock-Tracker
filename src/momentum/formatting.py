@@ -22,7 +22,7 @@ CURRENCY_SYMBOLS: Final = {
     "GBP": "£",
     "INR": "₹",
     "JPY": "¥",
-    "CNY": "¥",
+    "CNY": "CN¥",  # plain ¥ is the yen
     "KRW": "₩",
     "CHF": "CHF ",
     "BRL": "R$",
@@ -31,14 +31,22 @@ CURRENCY_SYMBOLS: Final = {
     "TWD": "NT$",
 }
 
-# Yahoo quotes London and Johannesburg listings in minor units (pence / cents).
-# Prices are shown in those units, as the exchanges do ("120.50p"); market cap is
-# reported by Yahoo in the major currency.
-MINOR_UNIT_CURRENCIES: Final = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100)}
-MINOR_UNIT_SUFFIXES: Final = {"GBp": "p", "GBX": "p", "ZAc": "c"}
+# Yahoo quotes London, Johannesburg and Tel Aviv listings in minor units (pence,
+# cents, agorot). Prices are shown in those units, as the exchanges do ("120.50p");
+# market cap is reported by Yahoo in the major currency.
+MINOR_UNIT_CURRENCIES: Final = {
+    "GBp": ("GBP", 100),
+    "GBX": ("GBP", 100),
+    "ZAc": ("ZAR", 100),
+    "ILA": ("ILS", 100),
+}
+MINOR_UNIT_SUFFIXES: Final = {"GBp": "p", "GBX": "p", "ZAc": "c", "ILA": " ag"}
 
-# Index levels are points, not money, even though Yahoo attaches a currency.
-UNITLESS_QUOTE_TYPES: Final = frozenset({"INDEX"})
+# Index levels are points and exchange rates are ratios, not money, even though
+# Yahoo attaches a currency to both.
+INDEX_QUOTE_TYPES: Final = frozenset({"INDEX"})
+RATE_QUOTE_TYPES: Final = frozenset({"CURRENCY"})
+UNITLESS_QUOTE_TYPES: Final = INDEX_QUOTE_TYPES | RATE_QUOTE_TYPES
 
 _COMPACT_SUFFIXES: Final = ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K"))
 
@@ -67,11 +75,28 @@ def _decimals_for(value: float) -> int:
     return 6
 
 
+def _rate_decimals(value: float) -> int:
+    """FX convention: four places for rates like EUR/USD 1.1222, two for USD/JPY 157.07."""
+    return 4 if abs(value) < 10 else 2
+
+
+def is_unitless(quote_type: str | None) -> bool:
+    """Index levels and FX rates carry no currency symbol."""
+    return quote_type in UNITLESS_QUOTE_TYPES
+
+
 def price_decimals(value: float | None, quote_type: str | None = None) -> int:
     """Decimals used for a price of this size, matching ``format_price``."""
-    if value is None or math.isnan(value) or quote_type in UNITLESS_QUOTE_TYPES:
+    if value is None or math.isnan(value) or quote_type in INDEX_QUOTE_TYPES:
         return 2
+    if quote_type in RATE_QUOTE_TYPES:
+        return _rate_decimals(value)
     return _decimals_for(value)
+
+
+def rounds_to_zero(value: float, decimals: int) -> bool:
+    """True when ``value`` would print as zero at ``decimals`` places (no "-0.00")."""
+    return round(abs(value), decimals) == 0
 
 
 def format_number(value: float | None, decimals: int = 2) -> str:
@@ -89,17 +114,19 @@ def format_price(
 ) -> str:
     """Format a price with its currency, e.g. ``$189.32``, ``₹3,412.10``, ``120.50p``.
 
-    Index levels are shown without a currency symbol. Sub-unit prices (crypto,
-    penny stocks) keep enough decimals to stay meaningful. ``decimals``
+    Index levels and FX rates are shown without a currency symbol. Sub-unit prices
+    (crypto, penny stocks) keep enough decimals to stay meaningful. ``decimals``
     overrides the size-based choice (used to give a change the precision of
     its price).
     """
     if value is None or math.isnan(value):
         return PLACEHOLDER
+    places = price_decimals(value, quote_type) if decimals is None else decimals
+    if rounds_to_zero(value, places):
+        value = 0.0
     if quote_type in UNITLESS_QUOTE_TYPES:
-        return format_number(value, 2 if decimals is None else decimals)
+        return format_number(value, places)
     sign = "-" if value < 0 else ""
-    places = _decimals_for(value) if decimals is None else decimals
     amount = f"{abs(value):,.{places}f}"
     if currency in MINOR_UNIT_SUFFIXES:
         return f"{sign}{amount}{MINOR_UNIT_SUFFIXES[currency]}"
@@ -120,14 +147,19 @@ def format_change(
     """
     if value is None or math.isnan(value):
         return PLACEHOLDER
-    sign = "+" if value > 0 else ("-" if value < 0 else "")
-    return f"{sign}{format_price(abs(value), currency, quote_type, decimals=decimals)}"
+    places = price_decimals(abs(value), quote_type) if decimals is None else decimals
+    if rounds_to_zero(value, places):
+        return format_price(0.0, currency, quote_type, decimals=places)
+    sign = "+" if value > 0 else "-"
+    return f"{sign}{format_price(abs(value), currency, quote_type, decimals=places)}"
 
 
 def format_percent(value: float | None, decimals: int = 2, *, signed: bool = True) -> str:
     """Format a value already expressed in percent, e.g. ``1.234 -> +1.23%``."""
     if value is None or math.isnan(value):
         return PLACEHOLDER
+    if rounds_to_zero(value, decimals):
+        value = 0.0
     sign = "+" if signed and value > 0 else ""
     return f"{sign}{value:,.{decimals}f}%"
 

@@ -70,3 +70,25 @@ def test_rail_assets_ship_with_the_package() -> None:
     assert "textContent" in js
     assert "innerHTML" not in js  # Yahoo-provided names never become markup
     assert "prefers-reduced-motion" in (UI / "rail.css").read_text(encoding="utf-8")
+
+
+def test_a_change_that_prints_as_zero_is_flat() -> None:
+    flat = Quote(symbol="X", name="X", currency="USD", price=100.0, previous_close=100.004)
+    markup = components.quote_header_html(flat)
+    assert 'class="mm-change flat"' in markup
+    assert "-$0.00" not in markup
+
+
+def test_csv_keeps_full_precision_without_exponents() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {"Close": [81_499.46, 0.000123456], "Volume": [123_456_789.0, 3.45e12]},
+        index=pd.Index(["a", "b"], name="Date"),
+    )
+    text = components.csv_bytes(frame).decode()
+    assert "81499.46" in text
+    assert "0.000123" in text
+    assert "123456789" in text
+    assert "3450000000000" in text
+    assert "e+" not in text

@@ -37,7 +37,8 @@ class RailRow:
 
 
 def direction_of(change: float | None) -> Direction:
-    if change is None or math.isnan(change) or change == 0:
+    """Badge colour for a percent change as displayed (two places: -0.004% is flat)."""
+    if change is None or math.isnan(change) or fmt.rounds_to_zero(change, 2):
         return "flat"
     return "up" if change > 0 else "down"
 
@@ -68,7 +69,7 @@ def sparkline_path(
 def _spoken_change(percent: float | None) -> str:
     if percent is None or math.isnan(percent):
         return "change unavailable"
-    if percent == 0:
+    if fmt.rounds_to_zero(percent, 2):
         return "unchanged today"
     word = "up" if percent > 0 else "down"
     return f"{word} {abs(percent):.2f}% today"

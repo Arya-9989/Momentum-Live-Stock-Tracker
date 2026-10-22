@@ -26,6 +26,12 @@ NAN = math.nan
         (-3.5, "USD", None, "-$3.50"),
         (108_250.37, "USD", "CRYPTOCURRENCY", "$108,250"),
         (25_300.45, "INR", "INDEX", "25,300.45"),  # index levels keep 2 dp
+        (1.1222085, "USD", "CURRENCY", "1.1222"),  # FX rates: no symbol, 4 dp
+        (157.0712, "JPY", "CURRENCY", "157.07"),  # ... 2 dp for yen-sized rates
+        (12_410.0, "ILA", "EQUITY", "12,410 ag"),  # Tel Aviv quotes in agorot
+        (7.25, "CNY", "EQUITY", "CN¥7.25"),  # not the yen sign
+        (-0.001, "USD", "EQUITY", "-$0.001000"),  # tiny prices keep 6 dp...
+        (-0.000_000_1, "USD", "EQUITY", "$0.000000"),  # ...and never prints "-$0.000000"
         (None, "USD", None, "—"),
         (NAN, "USD", None, "—"),
     ],
@@ -42,6 +48,27 @@ def test_format_price(
 )
 def test_format_change(value: float | None, expected: str) -> None:
     assert fmt.format_change(value, "USD") == expected
+
+
+def test_a_change_that_rounds_to_zero_has_no_sign() -> None:
+    assert fmt.format_change(-0.0013, "USD", "EQUITY", decimals=2) == "$0.00"
+    assert fmt.format_change(0.004, "USD", "INDEX") == "0.00"
+    assert fmt.format_percent(-0.004) == "0.00%"
+
+
+def test_fx_changes_keep_rate_precision() -> None:
+    # EUR/USD moving -0.0013 used to read "-$0.00".
+    assert fmt.format_change(-0.0013, "USD", "CURRENCY", decimals=4) == "-0.0013"
+    assert fmt.format_change(-0.0013, "USD", "CURRENCY") == "-0.0013"
+    assert fmt.price_decimals(1.12, "CURRENCY") == 4
+    assert fmt.price_decimals(157.07, "CURRENCY") == 2
+    assert fmt.is_unitless("CURRENCY")
+    assert fmt.is_unitless("INDEX")
+    assert not fmt.is_unitless("EQUITY")
+
+
+def test_tel_aviv_market_cap_is_in_shekels() -> None:
+    assert fmt.format_market_cap(144.74e9, "ILA") == "₪144.74B"
 
 
 def test_format_change_in_pence() -> None:

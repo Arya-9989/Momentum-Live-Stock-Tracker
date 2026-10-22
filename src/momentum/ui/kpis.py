@@ -15,6 +15,11 @@ DeltaColor = Literal["normal", "inverse", "off"]
 
 _PERIODS_PER_YEAR = {"1d": 252, "1wk": 52, "1mo": 12, "3mo": 4}
 
+# Valuation cards (market cap, P/E, volume) only mean something for shares.
+# Indices, FX, crypto, funds and futures get price-action cards instead, even
+# when Yahoo attaches a market cap (it does for crypto).
+VALUATION_QUOTE_TYPES = frozenset({"EQUITY"})
+
 
 @dataclass(frozen=True, slots=True)
 class Kpi:
@@ -32,8 +37,8 @@ def periods_per_year(interval: str, quote_type: str | None) -> int | None:
 
 
 def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: str) -> list[Kpi]:
-    """KPI cards for the overview. Equities get valuation cards; indices, FX and
-    crypto (no market cap / P/E) get price-action cards instead."""
+    """KPI cards for the overview. Equities get valuation cards; indices, FX,
+    crypto, ETFs and futures get price-action cards (day high/low, drawdown)."""
     close = frame["Close"]
     currency, qtype = quote.currency, quote.quote_type
 
@@ -44,6 +49,8 @@ def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: st
             f"{range_label} return",
             fmt.format_change(change, currency, qtype),
             fmt.format_percent(ret) if ret is not None else None,
+            # A move that prints as 0.00% gets no green "up" arrow.
+            "off" if ret is not None and fmt.rounds_to_zero(ret, 2) else "normal",
             help="Change from the first to the last bar in the selected range.",
         )
     ]
@@ -58,7 +65,7 @@ def build_kpis(quote: Quote, frame: pd.DataFrame, range_label: str, interval: st
     )
     drawdown = ind.max_drawdown(close)
 
-    if quote.market_cap or quote.trailing_pe:
+    if qtype in VALUATION_QUOTE_TYPES and (quote.market_cap or quote.trailing_pe):
         volume_delta = None
         if quote.volume and quote.average_volume:
             ratio = (quote.volume / quote.average_volume - 1) * 100

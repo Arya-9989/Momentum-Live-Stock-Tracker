@@ -206,8 +206,9 @@ def notice(text: str, *, kind: str = "info") -> None:
 # --------------------------------------------------------------------- quote header
 
 
-def _direction_class(change: float | None) -> str:
-    if change is None or change == 0:
+def _direction_class(change: float | None, decimals: int = 2) -> str:
+    """Price-state class for a change as displayed (a move that prints 0.00 is flat)."""
+    if change is None or fmt.rounds_to_zero(change, decimals):
         return "flat"
     return "up" if change > 0 else "down"
 
@@ -236,7 +237,7 @@ def quote_header_html(quote: Quote) -> str:
         places = fmt.price_decimals(quote.price, quote.quote_type)
         absolute = fmt.format_change(change, quote.currency, quote.quote_type, decimals=places)
         change_html = (
-            f'<p class="mm-change {_direction_class(change)}">'
+            f'<p class="mm-change {_direction_class(change, places)}">'
             f'<span class="mm-num">{escape(absolute)} ({escape(fmt.format_percent(pct))})</span>'
             '<span class="mm-when">Today</span></p>'
         )
@@ -356,12 +357,18 @@ def profile_card(profile: Profile, quote: Quote) -> None:
     )
 
 
+def csv_bytes(frame: pd.DataFrame) -> bytes:
+    """CSV with full precision: values rounded to 6 places, never in exponent form
+    (``%.6g`` used to turn 81,499.46 into 81499.5 and volumes into 1.23457e+08)."""
+    return frame.round(6).to_csv(float_format="%.15g").encode("utf-8")
+
+
 def csv_download(
     frame: pd.DataFrame, filename: str, label: str = "Download CSV", key: str | None = None
 ) -> None:
     st.download_button(
         label,
-        data=frame.to_csv(float_format="%.6g").encode("utf-8"),
+        data=csv_bytes(frame),
         file_name=filename,
         mime="text/csv",
         icon=":material/download:",

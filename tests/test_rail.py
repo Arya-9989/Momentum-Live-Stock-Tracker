@@ -86,3 +86,8 @@ def test_payload_is_json_and_height_is_reserved() -> None:
     assert rail.rail_height(7) == 7 * rail.ROW_HEIGHT
     assert rail.rail_height(0) == rail.ROW_HEIGHT
     assert rail.ROW_HEIGHT >= 44  # touch target
+
+
+def test_a_move_that_prints_as_zero_is_flat() -> None:
+    assert rail.direction_of(-0.004) == "flat"
+    assert rail.direction_of(-0.006) == "down"

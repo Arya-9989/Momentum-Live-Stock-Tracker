@@ -116,6 +116,9 @@ INSTRUMENTS: Final[dict[str, DemoInstrument]] = {
     ),
     "^GSPC": DemoInstrument("S&P 500", 6650.0, "USD", "SNP", quote_type="INDEX"),
     "^NSEI": DemoInstrument("NIFTY 50", 25300.0, "INR", "NSE", quote_type="INDEX", timezone="IST"),
+    "EURUSD=X": DemoInstrument(
+        "EUR/USD", 1.12, "USD", "CCY", quote_type="CURRENCY", timezone="BST"
+    ),
     "BTC-USD": DemoInstrument(
         "Bitcoin USD", 108000.0, "USD", "CCC", quote_type="CRYPTOCURRENCY", timezone="UTC"
     ),
@@ -217,7 +220,7 @@ def synthetic_history(
     spread = np.abs(rng.normal(0, vol * 0.8, len(index)))
     high = np.maximum(open_, close) * (1 + spread)
     low = np.minimum(open_, close) * (1 - spread)
-    base_volume = 0 if inst.quote_type == "INDEX" else (inst.shares or 1e9) * 0.004
+    base_volume = 0 if inst.quote_type in {"INDEX", "CURRENCY"} else (inst.shares or 1e9) * 0.004
     volume = (base_volume * rng.lognormal(0, 0.35, len(index))).round()
 
     frame = pd.DataFrame(
