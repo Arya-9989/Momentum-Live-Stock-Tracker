@@ -96,8 +96,16 @@ separation on both surfaces, that leaves out the market green and red.
   the top bar included, sits in a fixed-height slot with a skeleton of the same size, and nothing
   moves when data arrives (or when an element fails to load). Measured CLS is at most 0.003 on
   desktop and 0.01 on phones through `serve.py`.
-- **Motion:** only hover fades and a pulse on loading skeletons, both turned off under
-  `prefers-reduced-motion`.
+- **Motion:** three quiet transitions, each marking a change of state. On a new symbol or range,
+  only the characters of the price, day change and KPI figures that changed roll (up when the
+  value rose, down when it fell), and each ends on exactly the text a static render shows; there
+  is no count through made-up numbers. The watchlist's selection slides to the row you pick as
+  you click it. A newly drawn chart keeps its axes still while its series sweep in along the time
+  axis. Only transform, opacity and clip-path animate. With `prefers-reduced-motion` the figures
+  and the selection change at once, and the chart appears without the sweep. Plotly's own
+  `layout.transition` cannot work here: `st.plotly_chart` puts the figure into the element's
+  id, so every new figure mounts a fresh plot (`Plotly.newPlot`) and never reaches the
+  `Plotly.react` path that animates.
 - **Accessibility:** one 2px focus ring everywhere. Every target is at least 24 px (WCAG 2.5.8);
   on touch screens the Overview controls are 44 px or more (the range control scrolls sideways
   rather than shrink its segments), while Streamlit's multiselect chips, the data grid's toolbar
@@ -189,6 +197,11 @@ same image:
 
 Before `serve.py` the three views scored 60 / 32, 60 / 30 and 71 / 53, with SEO 82.
 
+The motion described under Design costs no score: with the image before and after it measured
+side by side (runs interleaved, median of five, 23 Oct 2026), every view stays within one point
+on desktop and mobile, the Overview's largest contentful paint is still the hero price, and the
+median CLS is at most 0.005.
+
 `serve.py` runs the app through `st.App` with `momentum.server` in front of it:
 
 - **Compression.** Streamlit serves its frontend bundle uncompressed. The image build writes a
@@ -226,7 +239,8 @@ No API keys or secrets are required.
 ## Testing and quality
 
 ```bash
-uv run pytest --cov          # unit + AppTest smoke tests, no network access
+uv run pytest --cov          # unit, AppTest and browser tests, no network access
+uv run playwright install chromium   # once, for the browser tests (skipped without it)
 uv run ruff check . && uv run ruff format --check .
 uv run mypy                  # strict mode
 ```
@@ -248,7 +262,13 @@ uv run mypy                  # strict mode
   `streamlit run serve.py` detects the app.
 - **UI** tests cover the per-theme Plotly templates, line colour by direction, the previous-close
   reference, stable series colours, the rail model and sparkline geometry, header markup and
-  escaping, and the WCAG contrast of every text colour.
+  escaping, the number roll's markup, the KPI payload, and the WCAG contrast of every text colour.
+- **Motion** tests check that the stylesheets animate only transform, opacity and clip-path and
+  that the chart sweep exists only without a reduced-motion preference. In Chromium (Playwright)
+  they render the quote header and mount the KPI tiles and rail the way Streamlit does: a roll
+  always ends on the exact formatted string, only changed digits move, nothing beside a rolling
+  figure moves, reduced motion shows the final value at once, and the rail's indicator lands on
+  the selected row.
 
 CI (`.github/workflows/ci.yml`) runs lint, format check, mypy, tests with coverage, a check that
 `requirements.txt` matches `uv.lock`, and a Docker build whose container must report healthy, run
