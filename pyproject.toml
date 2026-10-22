@@ -11,12 +11,17 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
+# Lower bounds are the versions this code is tested with where it relies on recent
+# APIs: st.App, widget `bind=` / `persist_state=` (Streamlit 1.66), hoversubplots
+# and candlestick hovertemplates (Plotly 7.1). Starlette is imported directly by
+# momentum.server, so it is declared rather than relied on through Streamlit.
 dependencies = [
-    "streamlit>=1.50",
+    "streamlit>=1.66",
+    "starlette>=0.46",
     "yfinance>=0.2.66",
     "pandas>=2.2",
     "numpy>=2.0",
-    "plotly>=6.0",
+    "plotly>=7.1",
 ]
 
 [dependency-groups]
@@ -65,7 +70,7 @@ docstring-code-format = true
 python_version = "3.12"
 strict = true
 mypy_path = "src"
-files = ["src", "tests", "scripts", "streamlit_app.py"]
+files = ["src", "tests", "scripts", "streamlit_app.py", "serve.py"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]

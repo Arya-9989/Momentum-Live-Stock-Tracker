@@ -110,7 +110,9 @@ six==1.17.0
 soupsieve==3.0.4
     # via beautifulsoup4
 starlette==1.9.0
-    # via streamlit
+    # via
+    #   momentum
+    #   streamlit
 streamlit==1.66.1
     # via momentum
 typing-extensions==4.16.0
