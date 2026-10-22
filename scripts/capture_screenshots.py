@@ -4,6 +4,7 @@ Usage (app already running on :8501):
 
     uv run --group screenshots python scripts/capture_screenshots.py
     uv run --group screenshots python scripts/capture_screenshots.py --demo
+    uv run --group screenshots python scripts/capture_screenshots.py --base-url http://localhost:5410
 
 Requires the Chromium build for the installed Playwright (``playwright install chromium``).
 """
@@ -12,10 +13,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Literal
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright
 
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
+RAIL = '[data-testid="stBidiComponentIsolated"]'
+TABLE = '[data-testid="stDataFrame"] canvas'
 
 
 def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) -> None:
@@ -31,7 +35,8 @@ def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) ->
     page.wait_for_function(
         "!document.querySelector('[data-testid=\"stStatusWidget\"]')", timeout=90_000
     )
-    page.wait_for_timeout(2_500)
+    page.wait_for_function("document.fonts.status === 'loaded'", timeout=30_000)
+    page.wait_for_timeout(2_000)
 
 
 def shoot(page: Page, url: str, name: str, *, charts: int = 1, selector: str | None = None) -> None:
@@ -42,6 +47,16 @@ def shoot(page: Page, url: str, name: str, *, charts: int = 1, selector: str | N
     print(f"saved {path}")
 
 
+Scheme = Literal["light", "dark"]
+
+
+def desktop(browser: Browser, scheme: Scheme, height: int) -> Page:
+    ctx = browser.new_context(
+        viewport={"width": 1440, "height": height}, device_scale_factor=1, color_scheme=scheme
+    )
+    return ctx.new_page()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://localhost:8501")
@@ -50,40 +65,29 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     base = args.base_url.rstrip("/")
-    suffix = "&demo=true" if args.demo else ""
+    demo = "&demo=true" if args.demo else ""
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        for scheme in ("light", "dark"):
-            ctx = browser.new_context(
-                viewport={"width": 1440, "height": 1500},
-                device_scale_factor=1,
-                color_scheme=scheme,
-            )
-            page = ctx.new_page()
-            shoot(page, f"{base}/?ticker=AAPL&range=6M{suffix}", f"overview-{scheme}")
-            if scheme == "light":
-                page.set_viewport_size({"width": 1440, "height": 1000})
-                shoot(
-                    page, f"{base}/?ticker=LT.NS&range=1Y&view=Compare{suffix}", "compare", charts=1
-                )
-                shoot(
-                    page,
-                    f"{base}/?view=Watchlist{suffix}",
-                    "watchlist",
-                    charts=0,
-                    selector='[data-testid="stDataFrame"] canvas',
-                )
-            ctx.close()
+        schemes: tuple[Scheme, ...] = ("light", "dark")
+        for scheme in schemes:
+            page = desktop(browser, scheme, 1060)
+            shoot(page, f"{base}/?ticker=AAPL&range=6M{demo}", f"overview-{scheme}", selector=RAIL)
+            page.context.close()
+
+        page = desktop(browser, "light", 1000)
+        shoot(page, f"{base}/?ticker=AAPL&range=1Y&view=Compare{demo}", "compare")
+        shoot(page, f"{base}/?view=Watchlist{demo}", "watchlist", charts=0, selector=TABLE)
+        page.context.close()
 
         mobile = browser.new_context(
-            viewport={"width": 390, "height": 1300},
+            viewport={"width": 390, "height": 844},
             device_scale_factor=2,
             is_mobile=True,
             has_touch=True,
             color_scheme="light",
         )
-        shoot(mobile.new_page(), f"{base}/?ticker=AAPL&range=6M{suffix}", "mobile")
+        shoot(mobile.new_page(), f"{base}/?ticker=AAPL&range=6M{demo}", "mobile")
         mobile.close()
         browser.close()
 
