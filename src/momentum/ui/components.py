@@ -57,12 +57,9 @@ _RAIL = st.components.v2.component(
     "momentum_watchlist_rail", css=_asset("rail.css"), js=_asset("rail.js")
 )
 
-# The quote header and the KPI tiles render their own figures so a change of
-# symbol or range can roll the digits in place. numeric.js holds the shared
-# transition and is prepended to each module (inline modules cannot import it).
-_QUOTE = st.components.v2.component(
-    "momentum_quote_header", css=_asset("quote.css"), js=_asset("numeric.js") + _asset("quote.js")
-)
+# The KPI tiles render their own figures so a change of symbol or range can
+# roll the digits in place. numeric.js holds the transition (inline modules
+# cannot import it, so it is prepended).
 _KPIS = st.components.v2.component(
     "momentum_kpi_row", css=_asset("kpis.css"), js=_asset("numeric.js") + _asset("kpis.js")
 )
@@ -301,61 +298,141 @@ def _direction_class(change: float | None, decimals: int = 2) -> str:
     return "up" if change > 0 else "down"
 
 
-def quote_header_payload(quote: Quote) -> dict[str, Any]:
-    """JSON for the quote header component: symbol line, name, hero price, day change.
+_SEP = '<span class="mm-sep{}" aria-hidden="true">\u00b7</span>'
 
-    Strings are formatted here, exactly as they are shown; the numbers beside them
-    only decide which way a changed figure rolls (``numeric.js``).
+# Number roll timings; numeric.js (the KPI tiles) uses the same ones.
+ROLL_STAGGER_MS = 18
+ROLL_STAGGER_MAX_MS = 120
+
+
+def roll_html(previous: str | None, text: str, *, rising: bool) -> str:
+    """``text`` as markup; the characters that differ from ``previous`` roll in (CSS).
+
+    Figures line up on their last character, so "$190.00" -> "$1,234.56" keeps the
+    cents in place. Each changed character gets a slot holding the new glyph and
+    the old one (``aria-hidden``); styles.css rolls them, upwards when the value
+    rose and downwards when it fell, and leaves the old glyph hidden. Leading
+    characters a shorter figure no longer has roll out from its first slot. Unchanged
+    characters stay plain text, and with no previous text (or the same one) the
+    result is just the escaped text. The visible and the spoken result is always
+    exactly ``text``.
     """
-    meta = [
-        {"text": text, "optional": optional}
-        for text, optional in (
-            (quote.exchange, False),
-            ((quote.quote_type or "").replace("CRYPTOCURRENCY", "CRYPTO").title() or None, True),
-            (None if quote.is_index else quote.currency, True),
+    if previous is None or previous == text:
+        return escape(text)
+    offset = len(text) - len(previous)
+    parts: list[str] = []
+    changed = 0
+    for i, char in enumerate(text):
+        j = i - offset
+        old = previous[j] if j >= 0 else ""
+        if i == 0 and offset < 0:
+            # A shorter figure: its first slot also takes the old leading characters,
+            # which roll out from where the number starts instead of vanishing.
+            old = previous[: j + 1]
+        if old == char:
+            parts.append(escape(char))
+            continue
+        delay = min(changed * ROLL_STAGGER_MS, ROLL_STAGGER_MAX_MS)
+        changed += 1
+        out = f'<span class="mm-out" aria-hidden="true">{escape(old)}</span>' if old else ""
+        lead = " mm-lead" if len(old) > 1 else ""
+        parts.append(
+            f'<span class="mm-slot{lead}" style="--mm-d:{delay}ms">'
+            f'<span class="mm-in">{escape(char)}</span>{out}</span>'
         )
-        if text
-    ]
-    label = MARKET_STATES.get(quote.market_state or "")
-    state = {"code": quote.market_state, "label": label} if label else None
-    change: dict[str, Any] | None = None
-    if quote.change is not None:
+    direction = "up" if rising else "down"
+    return f'<span class="mm-roll mm-roll-{direction}">{"".join(parts)}</span>'
+
+
+def _rising(value: float | None, before: float | None) -> bool:
+    """Roll direction: down only when both numbers are known and the value fell."""
+    if value is None or before is None or math.isnan(value) or math.isnan(before):
+        return True
+    return value >= before
+
+
+def _change_text(quote: Quote) -> str | None:
+    """``+$0.51 (+0.22%)``, at the price's precision; ``None`` without a change."""
+    if quote.change is None:
+        return None
+    places = fmt.price_decimals(quote.price, quote.quote_type)
+    absolute = fmt.format_change(quote.change, quote.currency, quote.quote_type, decimals=places)
+    return f"{absolute} ({fmt.format_percent(quote.change_percent)})"
+
+
+def _meta_html(quote: Quote) -> str:
+    """``AAPL · NasdaqGS · Equity · USD``; optional parts (and their dots) step aside
+    on narrow phones so the market-state badge always fits."""
+    html = f'<span class="mm-sym">{escape(quote.symbol)}</span>'
+    parts = (
+        (quote.exchange, False),
+        ((quote.quote_type or "").replace("CRYPTOCURRENCY", "CRYPTO").title() or None, True),
+        (None if quote.is_index else quote.currency, True),
+    )
+    for text, optional in parts:
+        if text:
+            opt = " mm-opt" if optional else ""
+            html += _SEP.format(opt) + f'<span class="mm-part{opt}">{escape(text)}</span>'
+    return html
+
+
+def quote_header_html(quote: Quote, previous: Quote | None = None) -> str:
+    """Symbol line, instrument name, the hero price and the day change.
+
+    ``previous`` is the quote this header showed before (a new symbol, or a
+    refresh); the price and change characters that differ from it roll in.
+    Plain HTML, so the hero price paints with the first render (it is the page's
+    largest contentful paint).
+    """
+    state = MARKET_STATES.get(quote.market_state or "")
+    badges = ""
+    if state:
+        code = escape(quote.market_state or "", quote=True)
+        badges += f'<span class="mm-state" data-state="{code}">{escape(state)}</span>'
+
+    price = fmt.format_price(quote.price, quote.currency, quote.quote_type)
+    before_price = (
+        fmt.format_price(previous.price, previous.currency, previous.quote_type)
+        if previous
+        else None
+    )
+    price_html = roll_html(
+        before_price, price, rising=_rising(quote.price, previous.price if previous else None)
+    )
+
+    change = _change_text(quote)
+    change_html = '<p class="mm-change flat">&nbsp;</p>'
+    if change is not None:
         places = fmt.price_decimals(quote.price, quote.quote_type)
-        absolute = fmt.format_change(
-            quote.change, quote.currency, quote.quote_type, decimals=places
+        before = _change_text(previous) if previous else None
+        rising = _rising(quote.change, previous.change if previous else None)
+        change_html = (
+            f'<p class="mm-change {_direction_class(quote.change, places)}">'
+            f'<span class="mm-num">{roll_html(before, change, rising=rising)}</span>'
+            '<span class="mm-when">Today</span></p>'
         )
-        change = {
-            "text": f"{absolute} ({fmt.format_percent(quote.change_percent)})",
-            "value": _finite(quote.change),
-            "direction": _direction_class(quote.change, places),
-        }
-    as_of = None
+    as_of = ""
     if quote.as_of is not None:
-        as_of = {
-            "iso": quote.as_of.isoformat(),
-            "label": f"As of {quote.as_of.strftime('%b %d, %H:%M UTC')}",
-        }
-    return {
-        "symbol": quote.symbol,
-        "meta": meta,
-        "state": state,
-        "name": quote.name,
-        "price": fmt.format_price(quote.price, quote.currency, quote.quote_type),
-        "price_value": _finite(quote.price),
-        "as_of": as_of,
-        "change": change,
-    }
+        as_of = (
+            f'<time class="mm-asof" datetime="{quote.as_of.isoformat()}">'
+            f"As of {escape(quote.as_of.strftime('%b %d, %H:%M UTC'))}</time>"
+        )
+    return (
+        f'<header class="mm-quote" style="height:{HEADER_HEIGHT}px">'
+        f'<p class="mm-meta">{_meta_html(quote)}{badges}</p>'
+        f'<h1 class="mm-name" title="{escape(quote.name, quote=True)}">{escape(quote.name)}</h1>'
+        f'<p class="mm-price"><span class="mm-num">{price_html}</span>{as_of}</p>'
+        f"{change_html}</header>"
+    )
+
+
+def quote_header(quote: Quote, previous: Quote | None = None) -> None:
+    st.html(quote_header_html(quote, previous))
 
 
 def _finite(value: float | None) -> float | None:
     """A number JSON can carry (NaN and infinities become ``None``)."""
     return value if value is not None and math.isfinite(value) else None
-
-
-def quote_header(quote: Quote) -> None:
-    # A stable key keeps the same component (and DOM) across reruns, so a new
-    # symbol's figures roll in place. The height is the slot's, reserved up front.
-    _QUOTE(key="quote_header", data=quote_header_payload(quote), height=HEADER_HEIGHT)
 
 
 def error_header_html(symbol: str, copy: Copy) -> str:

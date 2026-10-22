@@ -21,6 +21,7 @@ from momentum.ui.kpis import Kpi, build_kpis, key_stats
 OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
 DEFAULT_OVERLAYS = ("SMA 20", "SMA 50")
 COMPARE_HEIGHT = 460
+SHOWN_QUOTE = "_mm_shown_quote"  # the quote the header shows, for its number transition
 STYLE_LABELS = {
     "Line": ":material/show_chart: Line",
     "Candles": ":material/candlestick_chart: Candles",
@@ -218,13 +219,16 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
         shown = "" if isinstance(exc, data.InvalidSymbolError) else raw_symbol
         with header_slot:
             components.error_header(shown, messages.describe(exc, raw_symbol))
+        st.session_state.pop(SHOWN_QUOTE, None)  # the next quote appears without a roll
         with chart_slot:
             components.error_panel(messages.chart_note(exc), height=height, compact=True)
         return
 
     quote, quote_error = load_quote(symbol, full_history, demo)
     with header_slot:
-        components.quote_header(quote)
+        # The figures that differ from what the header showed last roll in.
+        components.quote_header(quote, st.session_state.get(SHOWN_QUOTE))
+    st.session_state[SHOWN_QUOTE] = quote
 
     period = config.get_range(controls.range_label).period
     history = data.visible_window(full_history, period)

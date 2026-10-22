@@ -10,7 +10,6 @@ Skipped when Chromium is not installed (``uv run playwright install chromium``).
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -106,98 +105,81 @@ def quote(symbol: str, price: float, previous: float) -> Quote:
     )
 
 
-def mount_quote(page: Any) -> None:
-    mount(page, "quote", asset("numeric.js", "quote.js"), asset("quote.css"))
+# The header is plain st.html: React swaps its innerHTML on every change, which is
+# what STAGE does, inside an app root carrying the real stylesheet.
+STAGE = """
+([css, html]) => {
+  if (!document.getElementById("app")) {
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+    const app = document.createElement("div");
+    app.id = "app";
+    app.dataset.testid = "stApp";
+    document.body.appendChild(app);
+  }
+  document.getElementById("app").innerHTML = html;
+}
+"""
+# The price as assistive tech reads it (aria-hidden glyphs left out), and as seen.
+SPOKEN = """() => { const n = document.querySelector('.mm-price .mm-num').cloneNode(true);
+  n.querySelectorAll('[aria-hidden]').forEach(e => e.remove()); return n.textContent; }"""
+SEEN = "() => document.querySelector('.mm-price .mm-num').innerText"
+ANIMATING = "() => document.getAnimations().length"
 
 
-PRICE = "return root.querySelector('.mm-price .mm-num')"
-CHANGE = "return root.querySelector('.mm-change .mm-num')"
+def stage(page: Any, current: Quote, previous: Quote | None = None) -> None:
+    html = components.quote_header_html(current, previous)
+    page.evaluate(STAGE, [asset("styles.css"), html])
 
 
-# --------------------------------------------------------------------- quote header
-
-
-def test_first_render_shows_the_final_figures_at_once(browser: Any) -> None:
+def test_header_roll_ends_on_the_exact_static_text(browser: Any) -> None:
     page = page_with(browser)
-    mount_quote(page)
-    payload = components.quote_header_payload(quote("AAPL", 228.0, 227.4923))
-    render(page, "quote", payload)
-    assert shadow(page, "quote", PRICE + ".textContent") == "$228.00"
-    assert shadow(page, "quote", "return root.querySelector('.mm-roll')") is None
-    assert shadow(page, "quote", "return root.querySelector('h1').textContent") == "AAPL Inc."
+    aapl, msft = quote("AAPL", 228.0, 227.4923), quote("MSFT", 1234.56, 1240.0)
+    stage(page, aapl)
+    assert page.evaluate(ANIMATING) == 0  # a first render shows plain figures
+    stage(page, msft, aapl)
+    assert page.evaluate(ANIMATING) > 0
+    assert page.evaluate(SPOKEN) == "$1,234.56"  # spoken right away, once
+    page.wait_for_function("() => document.getAnimations().length === 0", timeout=3000)
+    assert page.evaluate(SEEN) == "$1,234.56"  # the old glyphs end hidden
+    change = page.evaluate("() => document.querySelector('.mm-change .mm-num').innerText")
+    assert change == "-$5.44 (-0.44%)"
 
 
-def test_a_new_symbol_rolls_and_ends_on_the_exact_static_text(browser: Any) -> None:
+def test_header_roll_moves_nothing_around_it(browser: Any) -> None:
     page = page_with(browser)
-    mount_quote(page)
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 228.0, 227.4923)))
-    after = components.quote_header_payload(quote("MSFT", 1234.56, 1240.0))
-    render(page, "quote", after)
-
-    # Mid-transition: digits roll, while assistive tech already has the final value.
-    assert shadow(page, "quote", "return !!root.querySelector('.mm-price .mm-roll')")
-    assert (
-        shadow(page, "quote", "return root.querySelector('.mm-price .mm-sr').textContent")
-        == (after["price"])
+    aapl, msft = quote("AAPL", 228.0, 227.0), quote("MSFT", 512.0, 518.35)
+    box = (
+        "() => { const r = document.querySelector('.mm-asof').getBoundingClientRect();"
+        " return [r.x, r.y]; }"
     )
-    assert shadow(
-        page, "quote", "return root.querySelector('.mm-price .mm-roll').getAttribute('aria-hidden')"
-    ) == ("true")
-
-    page.wait_for_function(SETTLED, arg="quote", timeout=3000)
-    assert shadow(page, "quote", PRICE + ".textContent") == "$1,234.56"
-    assert shadow(page, "quote", PRICE + ".childNodes.length") == 1  # one plain text node
-    assert shadow(page, "quote", CHANGE + ".textContent") == after["change"]["text"]
-    assert shadow(page, "quote", "return root.querySelector('.mm-change').className") == (
-        "mm-change down"
-    )
+    stage(page, msft)
+    plain = page.evaluate(box)
+    stage(page, msft, aapl)
+    assert page.evaluate(ANIMATING) > 0
+    rolling = page.evaluate(box)
+    assert rolling == pytest.approx(plain, abs=0.5)  # the "As of" time keeps its place
 
 
-def test_only_changed_characters_roll(browser: Any) -> None:
+def test_header_rolls_down_when_the_value_fell(browser: Any) -> None:
     page = page_with(browser)
-    mount_quote(page)
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 228.0, 227.0)))
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 228.5, 227.0)))
-    rolling = shadow(
-        page,
-        "quote",
-        "return [...root.querySelectorAll('.mm-price .mm-in')].map(n => n.textContent)",
+    names = (
+        "() => [...document.querySelectorAll('.mm-price .mm-in')]"
+        ".map(n => getComputedStyle(n).animationName)"
     )
-    assert rolling == ["5"]  # $228.00 -> $228.50: one digit moves, the rest keep still
+    stage(page, quote("AAPL", 229.0, 227.0), quote("AAPL", 228.0, 227.0))
+    assert set(page.evaluate(names)) == {"mm-roll-in-up"}
+    stage(page, quote("AAPL", 227.0, 227.0), quote("AAPL", 229.0, 227.0))
+    assert set(page.evaluate(names)) == {"mm-roll-in-down"}
 
 
-def test_a_rise_rolls_up_and_a_fall_rolls_down(browser: Any) -> None:
-    page = page_with(browser)
-    mount_quote(page)
-    first_frame = (
-        "return root.querySelector('.mm-price .mm-in').getAnimations()[0]"
-        ".effect.getKeyframes()[0].transform"
-    )
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 228.0, 227.0)))
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 229.0, 227.0)))
-    assert shadow(page, "quote", first_frame) == "translateY(0.6em)"  # in from below
-    page.wait_for_function(SETTLED, arg="quote", timeout=3000)
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 227.0, 227.0)))
-    assert shadow(page, "quote", first_frame) == "translateY(-0.6em)"  # in from above
-
-
-def test_reduced_motion_shows_the_final_value_immediately(browser: Any) -> None:
+def test_header_under_reduced_motion_shows_the_final_value_at_once(browser: Any) -> None:
     page = page_with(browser, reduced=True)
-    mount_quote(page)
-    render(page, "quote", components.quote_header_payload(quote("AAPL", 228.0, 227.0)))
-    render(page, "quote", components.quote_header_payload(quote("MSFT", 512.0, 518.35)))
-    assert shadow(page, "quote", "return root.querySelector('.mm-roll')") is None
-    assert shadow(page, "quote", PRICE + ".textContent") == "$512.00"
-    assert shadow(page, "quote", "return root.getAnimations().length") == 0
-
-
-def test_an_interrupted_roll_still_ends_on_the_latest_value(browser: Any) -> None:
-    page = page_with(browser)
-    mount_quote(page)
-    for symbol, price in (("A", 10.0), ("B", 2000.0), ("C", 37.5)):
-        render(page, "quote", components.quote_header_payload(quote(symbol, price, price)))
-    page.wait_for_function(SETTLED, arg="quote", timeout=3000)
-    assert shadow(page, "quote", PRICE + ".textContent") == "$37.50"
+    aapl, msft = quote("AAPL", 228.0, 227.0), quote("MSFT", 512.0, 518.35)
+    stage(page, msft, aapl)
+    assert page.evaluate(ANIMATING) == 0
+    assert page.evaluate(SEEN) == "$512.00"
 
 
 @pytest.mark.parametrize(
@@ -359,6 +341,24 @@ def test_indicator_hides_when_no_row_is_selected(browser: Any) -> None:
     assert shadow(page, "rail", INDICATOR)[1] is False
 
 
-def test_payloads_are_plain_json() -> None:
-    payload = components.quote_header_payload(quote("AAPL", 1.0, 1.0))
-    assert json.loads(json.dumps(payload, allow_nan=False)) == payload
+def test_header_roll_never_shows_an_empty_slot(browser: Any) -> None:
+    """During its stagger delay a slot still shows the old glyph (backwards fill)."""
+    page = page_with(browser)
+    stage(page, quote("MSFT", 512.0, 518.35), quote("AAPL", 228.0, 227.0))
+    shown = page.evaluate(
+        """() => { document.getAnimations().forEach(a => { a.pause(); a.currentTime = 0; });
+          return [...document.querySelectorAll('.mm-price .mm-out')]
+            .map(n => getComputedStyle(n).visibility + ' ' + getComputedStyle(n).opacity); }"""
+    )
+    assert shown == ["visible 1"] * 3  # "228" fully there until each digit's turn
+
+
+def test_a_shorter_kpi_rolls_its_old_prefix_out_and_lands_exactly(browser: Any) -> None:
+    page = page_with(browser)
+    mount(page, "kpis", asset("numeric.js", "kpis.js"), asset("kpis.css"))
+    render(page, "kpis", kpi_cards("6,673.32", 6673.32, "+1.00%"))
+    render(page, "kpis", kpi_cards("$4.40T", 4.4e12, "+1.00%"))
+    lead = shadow(page, "kpis", "return root.querySelector('.value .mm-lead .mm-out').textContent")
+    assert lead == "6,6"  # "$" arrives where "6,6" leaves
+    page.wait_for_function(SETTLED, arg="kpis", timeout=3000)
+    assert shadow(page, "kpis", "return root.querySelector('.value').textContent") == "$4.40T"

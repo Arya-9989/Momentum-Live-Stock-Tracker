@@ -65,12 +65,11 @@ def kpi_labels(at: AppTest) -> list[str]:
 def test_overview_renders_kpis_chart_and_stats() -> None:
     at = run()
     assert not at.exception
-    assert component_data(at, "momentum_quote_header")["name"] == "Apple Inc."
+    assert "Apple Inc." in html_text(at)
     assert kpi_labels(at)[:2] == ["6M return", "Market cap"]
     assert len(at.get("plotly_chart")) == 1
     assert "Demo mode" in html_text(at)  # one-line notice, shown whenever demo data is on
     assert component_names(at) == [
-        "momentum_quote_header",
         "momentum_kpi_row",
         "momentum_watchlist_rail",
         "momentum_theme_watch",
@@ -80,7 +79,7 @@ def test_overview_renders_kpis_chart_and_stats() -> None:
 def test_index_symbol_from_url() -> None:
     at = run(ticker="^NSEI", range="1Y")
     assert not at.exception
-    assert component_data(at, "momentum_quote_header")["name"] == "NIFTY 50"
+    assert "NIFTY 50" in html_text(at)
     assert "Drawdown" in kpi_labels(at)
 
 
@@ -156,16 +155,17 @@ def test_compare_and_watchlist_tabs() -> None:
     assert "RELIANCE.NS" in table["Symbol"].tolist()
 
 
-def test_figures_keep_their_components_across_reruns() -> None:
-    """A new symbol updates the same header and KPI components (stable keys), which
-    is what lets their figures roll in place instead of remounting."""
+def test_a_new_symbol_rolls_its_figures_in_place() -> None:
+    """The header rolls from what it showed before; the KPI component keeps its
+    key (and DOM) across reruns, so its figures can roll too."""
     at = run()
-    before = {el.proto.component_name: el.proto.id for el in at.get("bidi_component")}
+    kpi_id = next(e.proto.id for e in at.get("bidi_component") if "kpi" in e.proto.component_name)
+    assert "mm-roll mm-roll-" not in html_text(at)  # a first render shows plain figures
     at.text_input(key="ticker").set_value("MSFT").run()
     assert not at.exception
-    after = {el.proto.component_name: el.proto.id for el in at.get("bidi_component")}
-    for name in ("momentum_quote_header", "momentum_kpi_row"):
-        assert after[name] == before[name]
-    header = component_data(at, "momentum_quote_header")
-    assert header["symbol"] == "MSFT"
-    assert header["price"].startswith("$")
+    markup = html_text(at)
+    assert "Microsoft Corporation" in markup
+    assert "mm-roll mm-roll-" in markup  # the price differs from Apple's, so it rolls
+    assert kpi_id in [e.proto.id for e in at.get("bidi_component")]
+    at.run()  # nothing changed: plain figures again, no roll
+    assert "mm-roll mm-roll-" not in html_text(at)

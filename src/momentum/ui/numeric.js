@@ -1,5 +1,7 @@
-// Number transitions shared by the quote header and the KPI tiles (prepended to
-// their component modules by components.py, so it defines no exports).
+// Number transitions for the KPI tiles (prepended to kpis.js by components.py,
+// so it defines no exports). The quote header does the same in server-rendered
+// HTML and CSS (components.roll_html), with the same timings, so that the hero
+// price paints with the page's first render.
 //
 // It follows Apple's numeric text transition: when a figure changes, only the
 // characters that differ roll, the new one in and the old one out, upwards
@@ -35,6 +37,9 @@ function mmChangedSlots(prev, next) {
   const offset = next.length - prev.length;
   return [...next].map((ch, i) => {
     const j = i - offset;
+    // A shorter figure: its first slot also takes the old leading characters,
+    // which roll out from where the number starts instead of vanishing.
+    if (i === 0 && offset < 0) return prev.slice(0, j + 1);
     return j < 0 || prev[j] !== ch ? (j < 0 ? "" : prev[j]) : null;
   });
 }
@@ -78,7 +83,7 @@ function mmSetNumber(node, next, value) {
       roll.append(ch);
       return;
     }
-    const slot = mmSpan("mm-slot", "");
+    const slot = mmSpan(old && old.length > 1 ? "mm-slot mm-lead" : "mm-slot", "");
     const incoming = mmSpan("mm-in", ch);
     slot.append(incoming);
     const delay = Math.min(changed * MM_STAGGER_MS, MM_STAGGER_MAX_MS);

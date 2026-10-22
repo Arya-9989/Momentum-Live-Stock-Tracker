@@ -91,7 +91,7 @@ jobs:
 
       - name: App renders inside the image
         # /_stcore/health never runs the script, so also render it headlessly:
-        # this catches missing package assets (rail.js, quote.js, styles.css) and import errors.
+        # this catches missing package assets (rail.js, kpis.js, styles.css) and import errors.
         run: |
           docker exec momentum python -c "
           import json
@@ -102,7 +102,7 @@ jobs:
           data = {e.proto.component_name: e.proto.json for e in at.get('bidi_component')}
           cards = json.loads(data['momentum_kpi_row'])['cards']
           assert [c['label'] for c in cards][:2] == ['6M return', 'Market cap']
-          assert json.loads(data['momentum_quote_header'])['symbol'] == 'AAPL'
+          assert 'Apple Inc.' in ' '.join(str(e.proto) for e in at.get('html'))
           print('rendered')
           "
 

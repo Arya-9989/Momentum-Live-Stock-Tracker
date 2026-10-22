@@ -15,7 +15,7 @@ from momentum.ui import components
 from momentum.ui.kpis import Kpi, build_kpis
 
 UI = Path(components.__file__).parent
-STYLESHEETS = ("styles.css", "rail.css", "quote.css", "kpis.css")
+STYLESHEETS = ("styles.css", "rail.css", "kpis.css")
 # Hard rule: only compositor-friendly properties move (plus colour fades on hover).
 ANIMATABLE = {"opacity", "transform", "clip-path", "visibility"}
 HOVER_FADES = {"background-color"}
@@ -52,11 +52,28 @@ def test_only_opacity_transform_and_clip_path_animate(name: str) -> None:
 
 def test_chart_sweep_runs_only_without_a_reduced_motion_preference() -> None:
     text = css("styles.css")
-    block = re.search(r"@media \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}", text, re.S)
+    block = re.search(
+        r"@media \(prefers-reduced-motion: no-preference\) \{(\s*:is\(\.st-key-chart_slot.*?)\n\}",
+        text,
+        re.S,
+    )
     assert block is not None
     assert "animation: mm-sweep" in block.group(1)
     assert text.count("animation: mm-sweep") == 1  # nowhere outside that block
     assert ".mlayer" in block.group(1)  # traces only: axes and grid are there at once
+
+
+def test_header_roll_runs_only_without_a_reduced_motion_preference() -> None:
+    text = css("styles.css")
+    block = re.search(
+        r"@media \(prefers-reduced-motion: no-preference\) \{\s*\.mm-roll(.*?)\n\}", text, re.S
+    )
+    assert block is not None
+    assert text.count("animation: mm-roll") == 2  # in and out, both inside that block
+    assert all(m in block.group(1) for m in ("mm-roll-in-up", "mm-roll-out-up"))
+    # Outgoing glyphs are hidden unless animating, so a static or reduced-motion
+    # render shows only the new value.
+    assert re.search(r"\.mm-out \{[^}]*visibility: hidden", text)
 
 
 @pytest.mark.parametrize("name", ["rail.css", "kpis.css"])
@@ -70,12 +87,12 @@ def test_number_transition_honours_reduced_motion_and_ends_on_the_static_text() 
     assert 'matchMedia("(prefers-reduced-motion: reduce)")' in js
     assert "node.textContent = next" in js  # the final DOM is the formatted string itself
     assert "innerHTML" not in js
-    # Four keyframes (in and out, from and to), each moving transform and opacity only.
+    # Every keyframe moves transform and opacity only.
     frames = re.findall(r"\{ (\w+): [^\n]*?, (\w+): [01] \}", js)
-    assert frames == [("transform", "opacity")] * 4
+    assert frames == [("transform", "opacity")] * 4  # in and out, from and to
 
 
-@pytest.mark.parametrize("name", ["quote.js", "kpis.js", "rail.js"])
+@pytest.mark.parametrize("name", ["kpis.js", "rail.js"])
 def test_components_never_build_markup_from_strings(name: str) -> None:
     js = css(name)
     assert "textContent" in js
@@ -86,7 +103,6 @@ def test_components_get_the_shared_number_transition() -> None:
     import inspect
 
     source = inspect.getsource(components)
-    assert '_asset("numeric.js") + _asset("quote.js")' in source
     assert '_asset("numeric.js") + _asset("kpis.js")' in source
 
 
