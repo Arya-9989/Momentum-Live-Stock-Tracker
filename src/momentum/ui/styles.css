@@ -204,6 +204,26 @@
 /* Tertiary buttons read as links */
 [data-testid="stBaseButton-tertiary"] p { color: var(--mm-focus); }
 
+/* ---------------------------------------------------------------- chart transitions */
+/* Streamlit makes every new figure a new element (the figure is part of its id),
+   so a range, symbol or style change mounts a fresh Plotly plot: Plotly.react,
+   and with it layout.transition, never runs. The motion therefore lives on that
+   mount. Axes, grid and the reference line are there at once, so the new scale
+   reads immediately; the series then sweep in along the time axis, left to
+   right, showing the new window being drawn. Clip-path only, so nothing moves
+   in the layout, and Plotly's own plot-area clip (on the parent) still applies.
+   `.mlayer` is Plotly's trace-layer class; if it ever changes, the chart simply
+   appears without the sweep. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.st-key-chart_slot, .st-key-compare_slot) .js-plotly-plot .cartesianlayer .mlayer {
+    animation: mm-sweep 640ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+@keyframes mm-sweep {
+  from { clip-path: inset(-16px 100% -16px -16px); }
+  to { clip-path: inset(-16px -16px -16px -16px); }
+}
+
 /* ---------------------------------------------------------------- KPI tiles */
 /* The tiles are the momentum_kpi_row component (kpis.css). */
 .st-key-kpi_row { margin-top: 2.5rem; }
