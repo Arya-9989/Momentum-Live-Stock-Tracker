@@ -39,9 +39,16 @@ def test_resolve_interval(range_label: str, interval: str | None, expected: str)
 @pytest.mark.parametrize(
     ("period", "interval", "expected"),
     [
+        ("1mo", "1d", "2y"),
         ("6mo", "1d", "2y"),
-        ("1y", "1wk", "2y"),
+        ("1y", "1d", "2y"),
+        ("ytd", "1d", "2y"),
+        ("2y", "1d", "5y"),
+        ("5y", "1d", "10y"),
+        ("6mo", "1wk", "10y"),  # 250 weekly bars is almost five years
+        ("1y", "1wk", "10y"),
         ("5y", "1wk", "10y"),
+        ("2y", "1mo", "max"),
         ("max", "1mo", "max"),
         ("1mo", "1h", "1mo"),  # intraday look-back is capped, so no warm-up
         ("1d", "5m", "1d"),
@@ -49,6 +56,20 @@ def test_resolve_interval(range_label: str, interval: str | None, expected: str)
 )
 def test_fetch_period_adds_warmup_for_daily_bars(period: str, interval: str, expected: str) -> None:
     assert config.fetch_period(period, interval) == expected
+
+
+@pytest.mark.parametrize("option", config.RANGES, ids=lambda r: r.label)
+def test_every_daily_or_longer_range_has_warmup_for_sma_200(option: config.RangeOption) -> None:
+    """Each range/interval Yahoo offers fetches at least WARMUP_BARS before the window."""
+    years = {"1y": 1, "2y": 2, "5y": 5, "10y": 10}
+    per_year = {"1d": 252, "1wk": 52, "1mo": 12, "3mo": 4}
+    visible = {"1mo": 1 / 12, "3mo": 0.25, "6mo": 0.5, "ytd": 1.0, "1y": 1, "2y": 2, "5y": 5}
+    for interval in option.intervals:
+        fetched = config.fetch_period(option.period, interval)
+        if config.is_intraday(interval) or option.period not in visible or fetched == "max":
+            continue
+        spare_bars = (years[fetched] - visible[option.period]) * per_year[interval]
+        assert spare_bars >= config.WARMUP_BARS >= 200, (option.label, interval)
 
 
 @pytest.mark.parametrize(

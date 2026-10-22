@@ -75,25 +75,35 @@ def is_intraday(interval: str) -> bool:
     return interval in INTRADAY_INTERVALS
 
 
-# Moving averages need history *before* the visible window (SMA 200 needs 200 bars).
+# Moving averages need history *before* the visible window (SMA 200 needs 200 bars,
+# and the EMA/RSI recursions need a run-in before they match charting platforms).
 # For daily-and-longer bars Yahoo has no look-back limit, so a longer period is
 # fetched, indicators are computed on it, and the result is trimmed for display.
-WARMUP_PERIODS: Final = {
-    "1mo": "1y",
-    "3mo": "2y",
-    "6mo": "2y",
-    "ytd": "2y",
-    "1y": "2y",
-    "2y": "5y",
-    "5y": "10y",
+WARMUP_BARS: Final = 250
+_BARS_PER_YEAR: Final = {"1d": 252, "1wk": 52, "1mo": 12, "3mo": 4}
+_VISIBLE_YEARS: Final = {
+    "1mo": 1 / 12,
+    "3mo": 0.25,
+    "6mo": 0.5,
+    "ytd": 1.0,  # at most a year
+    "1y": 1.0,
+    "2y": 2.0,
+    "5y": 5.0,
+    "10y": 10.0,
 }
+_FETCHABLE_YEARS: Final = (("1y", 1.0), ("2y", 2.0), ("5y", 5.0), ("10y", 10.0))
 
 
 def fetch_period(period: str, interval: str) -> str:
-    """The period to download so indicators are warmed up at the left edge of the chart."""
-    if is_intraday(interval):
-        return period  # intraday look-back is capped by Yahoo; keep the request valid
-    return WARMUP_PERIODS.get(period, period)
+    """The shortest Yahoo period that covers the visible range plus ``WARMUP_BARS`` bars.
+
+    Intraday look-back is capped by Yahoo, so intraday requests are left as they are;
+    ``max`` has no earlier history to add. Both start with undefined indicators.
+    """
+    if is_intraday(interval) or period not in _VISIBLE_YEARS:
+        return period
+    needed = _VISIBLE_YEARS[period] + WARMUP_BARS / _BARS_PER_YEAR.get(interval, 252)
+    return next((name for name, years in _FETCHABLE_YEARS if years >= needed), "max")
 
 
 DEFAULT_TICKER: Final = "AAPL"
