@@ -273,8 +273,9 @@ def synthetic_info(symbol: str, today: pd.Timestamp | None = None) -> dict[str, 
             country=inst.country,
             website="https://example.com",
             longBusinessSummary=(
-                f"Demo mode: this is placeholder text for {inst.name}. Prices, ratios and "
-                "market data shown in demo mode are synthetic and are not real quotes."
+                f"Demo mode: this is placeholder text for {inst.name.rstrip('.')}. Prices, "
+                "ratios and market data shown in demo mode are synthetic and are not real "
+                "quotes."
             ),
         )
     return info

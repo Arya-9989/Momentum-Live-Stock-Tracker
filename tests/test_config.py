@@ -61,3 +61,10 @@ def test_demo_mode_flag(value: str, expected: bool) -> None:
 
 def test_demo_mode_defaults_off() -> None:
     assert config.demo_mode_enabled({}) is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("TRUE", True), (" on ", True), ("false", False), ("no", False)]
+)
+def test_is_truthy(value: str, expected: bool) -> None:
+    assert config.is_truthy(value) is expected

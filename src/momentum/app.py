@@ -1,180 +1,178 @@
-"""Page composition: sidebar controls, header and the three views."""
+"""Page composition: top bar, watchlist rail and the three views.
+
+Layout (no ``st.sidebar``: Streamlit mounts the sidebar after the first
+paint, which shifts the whole page; an in-page rail does not)::
+
+    topbar   [logo  Momentum]                         [search]
+    shell    [main: tabs -> overview/compare/watchlist]  [rail: watchlist, data]
+
+The chart comes first; on narrow screens the rail wraps below the main column.
+"""
 
 from __future__ import annotations
 
-from typing import cast
+import time
 
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 from momentum import config, data
-from momentum import indicators as ind
-from momentum.charts import ChartStyle
 from momentum.data import DataError
+from momentum.theme import get_theme
 from momentum.ui import components, views
+from momentum.ui.rail import rail_height
 
-OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
 TABS = ("Overview", "Compare", "Watchlist")
+RAIL_WIDTH = 320
+SEARCH_WIDTH = 200  # wordmark + field fit one row at 390 px
+FIRST_PAINT_PAUSE_S = 0.12
+ABOUT = (
+    "**Momentum** is a Streamlit dashboard for global stocks, indices, FX and crypto.\n\n"
+    "Market data comes from Yahoo Finance via the unofficial yfinance library and may be "
+    "delayed or incomplete. Not financial advice."
+)
 
 
-def _apply_quick_pick() -> None:
-    pick = st.session_state.get("quick_pick")
-    if pick:
-        st.session_state["ticker"] = pick
-        st.session_state["quick_pick"] = None
+def _let_layout_settle() -> None:
+    """Give the browser the page config before any element.
+
+    Streamlit paints its initial (centred) layout first and switches to the
+    wide layout when the page config arrives. If elements arrive in the same
+    frame, the switch moves them all (a layout shift of 0.02-0.06). A short
+    pause on a session's first run lets the switch happen on an empty page.
+    """
+    time.sleep(FIRST_PAINT_PAUSE_S)
 
 
-def _indicator_settings(
-    overlays: list[str], show_rsi: bool, show_macd: bool
-) -> ind.IndicatorSettings:
-    return ind.IndicatorSettings(
-        sma_windows=tuple(int(o.split()[1]) for o in overlays if o.startswith("SMA")),
-        ema_spans=tuple(int(o.split()[1]) for o in overlays if o.startswith("EMA")),
-        bollinger="Bollinger Bands" in overlays,
-        rsi=show_rsi,
-        macd=show_macd,
-    )
+def demo_enabled() -> bool:
+    """Demo flag before its (URL-bound) toggle has rendered in this run."""
+    if "demo" in st.session_state:
+        return bool(st.session_state["demo"])
+    raw = st.query_params.get("demo")
+    return config.is_truthy(raw) if raw is not None else config.demo_mode_enabled()
 
 
-def sidebar() -> tuple[str, views.ChartControls, bool]:
-    """Render the sidebar and return (raw symbol, chart controls, demo flag)."""
-    with st.sidebar:
-        st.html(
-            '<div style="font-size:1.35rem;font-weight:700;letter-spacing:-0.01em">'
-            "Momentum</div>"
-            '<div style="font-size:0.8rem;opacity:0.65;margin-top:-0.1rem">'
-            "Global stocks &amp; indices dashboard</div>"
-        )
-        raw_symbol = st.text_input(
-            "Symbol",
-            value=config.DEFAULT_TICKER,
-            key="ticker",
-            bind="query-params",
-            placeholder="AAPL, LT.NS, ^GSPC",
-            icon=":material/search:",
-            help="Any Yahoo Finance symbol: AAPL, LT.NS (NSE), VOD.L (London), ^GSPC (index), "
-            "BTC-USD (crypto), EURUSD=X (FX).",
-        )
-        st.pills(
-            "Quick picks",
-            config.QUICK_PICKS,
-            key="quick_pick",
-            on_change=_apply_quick_pick,
-            label_visibility="collapsed",
-        )
+def _current_symbol(raw: str) -> str | None:
+    try:
+        return data.normalize_symbol(raw)
+    except DataError:
+        return None
 
-        st.subheader("Chart", anchor=False)
-        range_label = (
-            st.segmented_control(
-                "Range",
-                [r.label for r in config.RANGES],
-                default=config.DEFAULT_RANGE,
-                key="range",
-                bind="query-params",
-                required=True,
-            )
-            or config.DEFAULT_RANGE
-        )
-        option = config.get_range(range_label)
-        if st.session_state.get("interval") not in option.intervals:
-            st.session_state["interval"] = option.default_interval
-        interval = st.selectbox(
-            "Interval",
-            option.intervals,
-            key="interval",
-            format_func=lambda i: config.INTERVAL_LABELS.get(i, i),
-            help="Yahoo limits intraday history: 1-minute bars cover about a week, "
-            "sub-hourly bars about 60 days.",
-        )
-        style = cast(
-            ChartStyle,
-            st.segmented_control(
-                "Style", ["Candles", "Line"], default="Candles", key="style", required=True
-            ),
-        )
 
-        st.subheader("Indicators", anchor=False)
-        overlays = st.multiselect(
-            "Overlays", OVERLAYS, default=["SMA 20", "SMA 50"], key="overlays"
-        )
-        col_rsi, col_macd = st.columns(2)
-        show_rsi = col_rsi.toggle("RSI (14)", value=True, key="rsi")
-        show_macd = col_macd.toggle("MACD", value=False, key="macd")
+def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool) -> None:
+    """Watchlist rail: list, demo toggle, refresh and the data-source note."""
+    count = len(views.watchlist_symbols())
+    with rail:
+        views.rail_header()
+        slot = st.container(key="rail_slot", height=rail_height(count), border=False).empty()
+        if first_run:
+            with slot:
+                components.rail_skeleton(count)
+        _data_controls()
+    with slot:
+        views.watchlist_rail(_current_symbol(raw_symbol), demo)
 
-        st.subheader("Data", anchor=False)
-        demo = st.toggle(
+
+def _data_controls() -> None:
+    """Demo toggle, refresh and the data-source note (rail footer, or under the
+    watchlist table when the rail steps aside)."""
+    with st.container(key="data_controls"):
+        components.hairline()
+        st.toggle(
             "Demo data",
             value=config.demo_mode_enabled(),
             key="demo",
             bind="query-params",
             help="Use deterministic synthetic data instead of Yahoo Finance (works offline).",
         )
-        if st.button("Refresh data", icon=":material/refresh:", width="stretch"):
-            data.clear_caches()
-        st.caption(
-            "Data from Yahoo Finance via the unofficial yfinance library; it may be delayed "
-            "or incomplete. Not financial advice."
+        st.button(
+            "Refresh data",
+            icon=":material/refresh:",
+            type="tertiary",
+            key="refresh",
+            on_click=data.clear_caches,
         )
-
-    controls = views.ChartControls(
-        range_label=range_label,
-        interval=config.resolve_interval(range_label, interval),
-        style=style,
-        indicators=_indicator_settings(overlays, show_rsi, show_macd),
-    )
-    return raw_symbol or "", controls, demo
+        components.fineprint(
+            "Data from Yahoo Finance via the unofficial yfinance library; it may be "
+            "delayed or incomplete. Not financial advice."
+        )
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="Momentum · Stock Dashboard",
+        page_title="Momentum · Markets",
         page_icon=":material/monitoring:",
         layout="wide",
-        initial_sidebar_state="auto",
+        initial_sidebar_state="collapsed",
+        menu_items={"About": ABOUT},
     )
+    first_run = not st.session_state.get("_mm_rendered", False)
+    if first_run:
+        _let_layout_settle()
     components.inject_styles()
-    raw_symbol, controls, demo = sidebar()
-    if demo:
-        components.demo_banner()
+    theme = get_theme(st.context.theme.type)
 
-    symbol: str | None = None
-    history = None
-    error: str | None = None
-    try:
-        symbol = data.normalize_symbol(raw_symbol)
-        option = config.get_range(controls.range_label)
-        with st.spinner(f"Loading {symbol}..."):
-            history = data.cached_history(
-                symbol,
-                config.fetch_period(option.period, controls.interval),
-                controls.interval,
-                demo,
-            )
-    except DataError as exc:
-        error = str(exc)
+    with st.container(
+        key="topbar",
+        horizontal=True,
+        horizontal_alignment="distribute",
+        vertical_alignment="center",
+        gap="small",
+    ):
+        components.wordmark()
+        raw_symbol = st.text_input(
+            "Search symbol",
+            value=config.DEFAULT_TICKER,
+            key="ticker",
+            bind="query-params",
+            placeholder="Search symbol",
+            icon=":material/search:",
+            label_visibility="collapsed",
+            help="Any Yahoo Finance symbol: AAPL, LT.NS (NSE), VOD.L (London), ^GSPC (index), "
+            "BTC-USD (crypto), EURUSD=X (FX).",
+            width=SEARCH_WIDTH,
+        )
 
-    quote = None
-    if symbol and history is not None:
-        quote, quote_error = views.load_quote(symbol, history, demo)
-        components.quote_header(quote, demo=demo)
-        if quote_error:
-            st.caption(f"Some quote details are unavailable: {quote_error}")
+    # DOM order is visual order at every width (main, then rail), so no CSS
+    # reordering is needed and nothing jumps when the stylesheet arrives.
+    with st.container(key="shell", horizontal=True, gap="large"):
+        main_column = st.container(key="main")
+        rail = st.container(key="rail", width=RAIL_WIDTH)
 
-    overview_tab, compare_tab, watch_tab = st.tabs(
-        list(TABS), key="view", on_change="rerun", bind="query-params"
-    )
-    if overview_tab.open is not False:
-        with overview_tab:
-            if error or symbol is None or history is None or quote is None:
-                st.error(error or "Enter a ticker symbol in the sidebar.", icon=":material/error:")
-                st.caption(
-                    "Try one of the quick picks in the sidebar, or switch on demo data "
-                    "if Yahoo Finance is unreachable."
+    # The demo flag is needed before its toggle renders (the rail is filled last).
+    demo = demo_enabled()
+
+    with main_column:
+        if demo:
+            components.demo_notice()
+        overview_tab, compare_tab, watch_tab = st.tabs(
+            list(TABS), key="view", on_change="rerun", bind="query-params"
+        )
+        if overview_tab.open is not False:
+            with overview_tab:
+                views.overview(raw_symbol or "", demo, theme, first_run=first_run)
+        if compare_tab.open:
+            with compare_tab:
+                views.compare(
+                    _current_symbol(raw_symbol or "") or config.DEFAULT_TICKER,
+                    demo,
+                    theme,
+                    first_run=first_run,
                 )
-            else:
-                views.overview(symbol, quote, history, controls, demo)
-    if compare_tab.open:
-        with compare_tab:
-            views.compare(symbol or config.DEFAULT_TICKER, demo)
+        if watch_tab.open:
+            with watch_tab:
+                views.watchlist(demo, theme, first_run=first_run)
+
+    # The rail renders after the main column: on phones it sits below it, so
+    # rendering it first would let the arriving chart push it down the page.
+    # The Watchlist tab is the rail's expanded form, so the rail steps aside
+    # there (an empty container takes no space) and the table gets the width.
     if watch_tab.open:
-        with watch_tab:
-            views.watchlist(demo)
+        with main_column:
+            _data_controls()
+    else:
+        _rail(rail, raw_symbol or "", demo, first_run=first_run)
+
+    st.space("large")
+    components.theme_watcher()
+    st.session_state["_mm_rendered"] = True

@@ -1,4 +1,4 @@
-"""Static configuration: chart ranges, interval rules, defaults and the colour palette.
+"""Static configuration: chart ranges, interval rules, defaults and cache lifetimes.
 
 Yahoo Finance only serves intraday bars for a limited look-back window
 (1m for ~7 days, <=90m for ~60 days, 1h for ~730 days), so every range
@@ -111,30 +111,11 @@ TTL_DAILY: Final = 15 * 60
 TTL_PROFILE: Final = 24 * 60 * 60
 
 
-@dataclass(frozen=True, slots=True)
-class Palette:
-    """Colours shared by charts and UI so the dashboard reads as one system."""
-
-    up: str = "#16a34a"
-    down: str = "#dc2626"
-    accent: str = "#4f46e5"
-    muted: str = "#94a3b8"
-    band: str = "rgba(79, 70, 229, 0.08)"
-    series: tuple[str, ...] = (
-        "#4f46e5",  # indigo
-        "#0891b2",  # cyan
-        "#ea580c",  # orange
-        "#db2777",  # pink
-        "#65a30d",  # lime
-        "#9333ea",  # purple
-    )
-    overlays: tuple[str, ...] = ("#f59e0b", "#0ea5e9", "#a855f7", "#14b8a6")
-
-
-PALETTE: Final = Palette()
+def is_truthy(value: str) -> bool:
+    """``"1"``, ``"true"``, ``"yes"`` and ``"on"`` (any case, padded) are true."""
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def demo_mode_enabled(env: dict[str, str] | None = None) -> bool:
     """Demo mode serves deterministic synthetic data instead of calling Yahoo."""
-    value = (env if env is not None else dict(os.environ)).get("MOMENTUM_DEMO", "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return is_truthy((env if env is not None else dict(os.environ)).get("MOMENTUM_DEMO", ""))

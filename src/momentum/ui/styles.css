@@ -1,77 +1,355 @@
 /*
- * Light-touch styling on top of the Streamlit theme in .streamlit/config.toml.
- * Colours are either the theme's own (inherited) or translucent, so every rule
- * reads correctly in both the light and the dark theme.
+ * Momentum: Apple Stocks-style styling on top of .streamlit/config.toml.
+ *
+ * Hooks this file relies on (keep in sync when upgrading Streamlit):
+ *   data-testid: stApp, stHeader, stMain, stMainBlockContainer, stHorizontalBlock,
+ *                stColumn, stVerticalBlock, stElementContainer, stTabs, stTab,
+ *                stButtonGroup, stBaseButton-tertiary, stPopoverButton,
+ *                stMetric, stMetricLabel, stMetricValue, stMetricDelta,
+ *                stAlertContainer, stExpander, stCaptionContainer, stTextInputRootElement,
+ *                stMultiSelectTagsContainer (with its [data-tag] chips),
+ *                stBidiComponentIsolated (rail host)
+ *   .st-key-KEY classes, which Streamlit adds for keyed containers/widgets
+ *   (topbar, shell, rail, main, rail_header, data_controls, chart_toolbar, range,
+ *   style, chart_options, overlays, compare_range, kpi_row, stats_section,
+ *   about_section, compare_toolbar, demo_notice, theme_watch).
+ *   ARIA: [role=tab][aria-selected] on tabs; [role=radiogroup] > [role=radio]
+ *   [aria-checked] in segmented controls; [aria-pressed] on pills.
+ * No layout depends on Streamlit's generated emotion class names.
+ *
+ * st.html sanitises with DOMPurify, which drops a style block whose text
+ * contains a less-than sign followed by a letter, and strips inline SVG. Keep
+ * this file free of that character; the logo is a URL-encoded CSS mask.
+ *
+ * Theme: Streamlit sets `color-scheme` on [data-testid="stApp"] for the active
+ * theme (OS or main-menu choice), so light-dark() tokens switch instantly and
+ * also reach the rail's shadow root.
  */
 
-.block-container {
-  padding-top: 2.2rem;
-  padding-bottom: 3rem;
-  max-width: 1440px;
+[data-testid="stApp"] {
+  --mm-ink: light-dark(#1d1d1f, #f5f5f7);
+  --mm-secondary: light-dark(#6e6e73, #a1a1a6);
+  --mm-secondary-strong: light-dark(#515154, #b6b6bb); /* on selected/hover fills */
+  --mm-tertiary-line: light-dark(#aeaeb2, #636366);
+  --mm-hairline: light-dark(rgba(60, 60, 67, 0.14), rgba(235, 235, 245, 0.14));
+  --mm-surface: light-dark(#ffffff, #000000);
+  --mm-surface-2: light-dark(#f5f5f7, #1c1c1e);
+  --mm-fill: light-dark(rgba(118, 118, 128, 0.12), rgba(118, 118, 128, 0.24));
+  --mm-fill-hover: light-dark(rgba(118, 118, 128, 0.08), rgba(118, 118, 128, 0.18));
+  --mm-fill-selected: light-dark(rgba(118, 118, 128, 0.16), rgba(118, 118, 128, 0.32));
+  --mm-raised: light-dark(#ffffff, #636366);
+  --mm-up: light-dark(#1f7a35, #30d158);
+  --mm-down: light-dark(#d70015, #ff453a);
+  --mm-focus: light-dark(#0066cc, #2997ff);
+  --mm-ease: cubic-bezier(0.4, 0, 0.6, 1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+}
+@supports not (color: light-dark(#000, #fff)) {
+  [data-testid="stApp"] {
+    --mm-ink: #1d1d1f; --mm-secondary: #6e6e73; --mm-secondary-strong: #515154; --mm-tertiary-line: #aeaeb2;
+    --mm-hairline: rgba(60, 60, 67, 0.14); --mm-surface: #fff; --mm-surface-2: #f5f5f7;
+    --mm-fill: rgba(118, 118, 128, 0.12); --mm-fill-hover: rgba(118, 118, 128, 0.08);
+    --mm-fill-selected: rgba(118, 118, 128, 0.16); --mm-raised: #fff;
+    --mm-up: #1f7a35; --mm-down: #d70015; --mm-focus: #0066cc;
+  }
 }
 
-/* ------------------------------------------------------------ header */
-.mm-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
-  gap: 0.75rem 2rem; margin-bottom: 0.25rem; }
-.mm-eyebrow { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
-  opacity: 0.6; font-weight: 600; margin-bottom: 0.15rem; }
-.mm-title { font-size: 1.85rem; font-weight: 700; line-height: 1.15; margin: 0; }
-.mm-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
-.mm-chip { font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px;
-  background: rgba(148, 163, 184, 0.16); white-space: nowrap; }
-.mm-chip.live { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
-.mm-chip.demo { background: rgba(234, 88, 12, 0.14); color: #ea580c; }
-.mm-price { text-align: right; }
-.mm-price .value { font-size: 2.1rem; font-weight: 700; font-variant-numeric: tabular-nums;
-  line-height: 1.1; }
-.mm-price .delta { font-size: 0.95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.mm-price .asof { font-size: 0.75rem; opacity: 0.6; margin-top: 0.15rem; }
-.mm-up { color: #16a34a; }
-.mm-down { color: #dc2626; }
+.mm-num { font-variant-numeric: tabular-nums; }
 
-.mm-section { font-size: 1.05rem; font-weight: 650; margin: 0.1rem 0 0.4rem; }
+/* One focus ring everywhere: 2px action blue, 2px offset. */
+[data-testid="stApp"] :is(a, button, summary, [role="tab"], [role="button"], [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--mm-focus);
+  outline-offset: 2px;
+}
 
-/* ------------------------------------------------------------ metric cards */
-[data-testid="stMetric"] { padding: 0.85rem 1rem; }
-[data-testid="stMetricLabel"] p { font-size: 0.78rem; text-transform: uppercase;
-  letter-spacing: 0.05em; font-weight: 600; opacity: 0.7; }
-[data-testid="stMetricValue"] { font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+/* ---------------------------------------------------------------- chrome */
+/* Streamlit's header only holds the main menu (theme switcher + About). It
+   spans the page, so let clicks fall through to the top bar beneath it. */
+[data-testid="stHeader"] { background: transparent; pointer-events: none; height: 3.5rem; }
+[data-testid="stHeader"] :is(button, a, [role="button"]) { pointer-events: auto; }
 
-/* ------------------------------------------------------------ key stats grid */
-.mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.5rem; }
-.mm-stat { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18); font-size: 0.88rem; }
-.mm-stat span:first-child { opacity: 0.65; }
-.mm-stat span:last-child { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 
-/* ------------------------------------------------------------ range bars */
-.mm-range { margin: 0.35rem 0 0.9rem; }
-.mm-range-head { display: flex; justify-content: space-between; font-size: 0.78rem;
-  text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; opacity: 0.7; }
-.mm-range-track { position: relative; height: 6px; border-radius: 999px; margin: 0.45rem 0 0.3rem;
-  background: linear-gradient(90deg, rgba(220, 38, 38, 0.45), rgba(148, 163, 184, 0.35),
-  rgba(22, 163, 74, 0.45)); }
-.mm-range-dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
-  transform: translate(-50%, -50%); background: #4f46e5; border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35); }
-.mm-range-foot { display: flex; justify-content: space-between; font-size: 0.82rem;
-  font-variant-numeric: tabular-nums; }
+/* ---------------------------------------------------------------- top bar */
+/* Paint only: geometry here would land after the first paint and shift the page.
+   The hairline is an absolutely positioned pseudo-element, which takes no space. */
+.st-key-topbar { position: relative; }
+.st-key-topbar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 1px;
+  background: var(--mm-hairline); pointer-events: none;
+}
+.mm-wordmark { color: var(--mm-ink); letter-spacing: -0.012em; white-space: nowrap; }
+.mm-logo {
+  position: relative; flex: none; width: 24px; height: 24px; border-radius: 6px;
+  background: var(--mm-ink);
+}
+.mm-logo::after {
+  content: ""; position: absolute; inset: 0; background: var(--mm-surface);
+  -webkit-mask: var(--mm-logo-mark) center / 24px 24px no-repeat;
+  mask: var(--mm-logo-mark) center / 24px 24px no-repeat;
+}
+[data-testid="stApp"] {
+  --mm-logo-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 15.5 9.5 11l3 3L19 7.5' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 
-/* ------------------------------------------------------------ profile */
-.mm-profile p { font-size: 0.9rem; line-height: 1.6; opacity: 0.9; }
-.mm-profile a { text-decoration: none; }
+/* ---------------------------------------------------------------- shell */
+/* The rail's flex wrapper sticks (the inner block always fills the wrapper). */
+.st-key-shell > [data-testid="stLayoutWrapper"]:has(> .st-key-rail) {
+  position: sticky; top: 0.75rem; align-self: flex-start;
+}
+.st-key-main { min-width: 0; }
 
-/* ------------------------------------------------------------ small screens */
+.mm-eyebrow {
+  margin: 0; font-size: 13px; line-height: 18px; font-weight: 600;
+  letter-spacing: 0.02em; text-transform: uppercase; color: var(--mm-secondary);
+}
+.st-key-rail_header { padding-left: 12px; }
+.st-key-rail .st-key-data_controls { padding: 0 12px; }
+.mm-hairline { background: var(--mm-hairline); }
+.mm-fineprint { margin: 0; font-size: 12px; line-height: 16px; color: var(--mm-secondary); }
+.mm-demo-notice { font-size: 14px; color: var(--mm-secondary); }
+.mm-demo-notice strong { color: var(--mm-ink); font-weight: 600; }
+
+/* ---------------------------------------------------------------- skeletons */
+.mm-skeleton i {
+  display: block; border-radius: 8px; background: var(--mm-fill);
+  animation: mm-pulse 1.6s var(--mm-ease) infinite alternate;
+}
+@keyframes mm-pulse { from { opacity: 1; } to { opacity: 0.45; } }
+.mm-sk-rail { display: flex; flex-direction: column; }
+.mm-sk-row { height: 60px; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 12px; }
+.mm-sk-row i:first-child { width: 56px; height: 14px; }
+.mm-sk-row i:last-child { width: 120px; height: 10px; }
+.mm-sk-chart { display: flex; }
+.mm-sk-chart i { flex: 1; border-radius: 18px; }
+.mm-quote.mm-skeleton i { margin: 0; }
+.mm-sk-meta { width: 220px; height: 14px; margin-top: 3px !important; }
+.mm-sk-name { width: 260px; height: 28px; margin-top: 9px !important; }
+.mm-sk-price { width: 240px; height: 56px; margin-top: 14px !important; }
+.mm-sk-change { width: 180px; height: 20px; margin-top: 8px !important; }
+
+/* ---------------------------------------------------------------- quote header */
+/* Exactly the slot height (set inline): any overflow would make the slot a
+   focusable scroll region. */
+.mm-quote { margin: 0; overflow: hidden; color: var(--mm-ink); }
+.mm-quote p { margin: 0; }
+.mm-meta {
+  display: flex; align-items: center; gap: 0.4rem; min-width: 0;
+  font-size: 14px; line-height: 20px; color: var(--mm-secondary);
+  white-space: nowrap; overflow: hidden;
+}
+.mm-meta .mm-sym { color: var(--mm-ink); font-weight: 600; }
+.mm-sep { color: var(--mm-tertiary-line); }
+.mm-state, .mm-demo {
+  margin-left: 0.5rem; padding: 1px 8px; border-radius: 980px;
+  font-size: 12px; line-height: 18px; font-weight: 500;
+  background: var(--mm-fill); color: var(--mm-ink);
+}
+.mm-state::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 1px; background: var(--mm-secondary);
+}
+.mm-state[data-state="REGULAR"]::before { background: var(--mm-ink); }
+.mm-demo { margin-left: 0.25rem; box-shadow: inset 0 0 0 1px var(--mm-secondary); }
+
+[data-testid="stApp"] .mm-quote h1.mm-name {
+  margin: 6px 0 0; padding: 0;
+  font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.012em;
+  color: var(--mm-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mm-price {
+  display: flex; align-items: baseline; flex-wrap: nowrap; gap: 0.9rem;
+  margin-top: 6px !important;
+  font-size: 64px; line-height: 72px; font-weight: 600; letter-spacing: -0.022em;
+  white-space: nowrap;
+}
+.mm-asof {
+  font-size: 13px; line-height: 18px; font-weight: 400; letter-spacing: 0;
+  color: var(--mm-secondary); overflow: hidden; text-overflow: ellipsis;
+}
+.mm-change {
+  margin-top: 2px !important; display: flex; align-items: baseline; gap: 0.5rem;
+  font-size: 19px; line-height: 24px; font-weight: 600; letter-spacing: 0.012em;
+}
+.mm-change.up .mm-num { color: var(--mm-up); }
+.mm-change.down .mm-num { color: var(--mm-down); }
+.mm-change .mm-when { font-weight: 400; color: var(--mm-secondary); }
+
+/* ---------------------------------------------------------------- tabs as local nav */
+/* Paint only (tabs render before this stylesheet arrives). */
+.st-key-main [data-testid="stTab"] p { color: var(--mm-secondary); }
+.st-key-main [data-testid="stTab"][aria-selected="true"] p { color: var(--mm-ink); }
+.st-key-main [data-testid="stTab"]:hover p { color: var(--mm-ink); }
+
+/* ---------------------------------------------------------------- segmented controls */
+/* Apple segmented control: a grey track with a raised thumb. Streamlit renders
+   button[role=radio] inside [role=radiogroup]. These rows have fixed heights,
+   so the small geometry changes below never move anything outside them. */
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radiogroup"] {
+  padding: 3px; border-radius: 10px; background: var(--mm-fill); flex-wrap: nowrap;
+}
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"] {
+  padding: 4px 12px; border-color: transparent !important; border-radius: 8px !important;
+  background: transparent; color: var(--mm-ink); box-shadow: none;
+  transition: background-color 180ms var(--mm-ease);
+}
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"] p { color: var(--mm-ink); }
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"]:hover {
+  background: var(--mm-fill-hover); color: var(--mm-ink);
+}
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"][aria-checked="true"],
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"][aria-checked="true"]:is(:hover, :focus, :active) {
+  /* !important: Streamlit tints a focused/pressed segment with the primary colour. */
+  background: var(--mm-raised) !important; color: var(--mm-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06) !important;
+}
+:is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"][aria-checked="true"] p {
+  color: var(--mm-ink);
+}
+
+/* Pills (overlay picker, inside the popover) */
+/* !important: Streamlit's own selected-pill rule is more specific (paint only). */
+.st-key-overlays button[aria-pressed="true"] {
+  background: var(--mm-ink) !important; border-color: var(--mm-ink) !important;
+  color: var(--mm-surface) !important;
+}
+.st-key-overlays button[aria-pressed="true"] p { color: var(--mm-surface) !important; }
+
+/* Multiselect tags (Compare, Watchlist): neutral chips instead of blue blocks */
+[data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  background: var(--mm-fill) !important; color: var(--mm-ink) !important;
+}
+[data-testid="stMultiSelectTagsContainer"] [data-tag] :is(span, button) { color: var(--mm-ink) !important; }
+
+/* Popover trigger: a quiet pill */
+[data-testid="stPopoverButton"] { border-color: var(--mm-hairline); background: transparent; }
+[data-testid="stPopoverButton"]:hover { background: var(--mm-fill-hover); border-color: var(--mm-hairline); }
+
+/* Tertiary buttons read as links */
+[data-testid="stBaseButton-tertiary"] p { color: var(--mm-focus); }
+
+/* ---------------------------------------------------------------- KPI tiles */
+.st-key-kpi_row { margin-top: 2.5rem; }
+.st-key-kpi_row [data-testid="stMetric"] {
+  height: 100%; padding: 16px 18px; border-radius: 18px; background: var(--mm-surface-2);
+}
+[data-testid="stMetricLabel"] p { font-size: 13px; font-weight: 500; color: var(--mm-secondary); letter-spacing: -0.005em; }
+[data-testid="stMetricValue"] { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--mm-ink); }
+[data-testid="stMetricDelta"] { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- sections */
+.mm-section { margin: 4.5rem 0 0.75rem; }
+[data-testid="stApp"] .mm-section :is(h1, h2) {
+  margin: 0; padding: 0; color: var(--mm-ink); font-weight: 600;
+  font-size: 32px; line-height: 38px; letter-spacing: -0.015em;
+}
+.mm-subhead { margin: 0.35rem 0 0; font-size: 17px; line-height: 25px; color: var(--mm-secondary); letter-spacing: -0.01em; }
+.st-key-main [data-testid="stTabs"] .mm-section:first-child { margin-top: 1.5rem; }
+
+.mm-ranges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-bottom: 1rem; }
+.mm-range-head, .mm-range-foot {
+  display: flex; justify-content: space-between; gap: 0.5rem; font-size: 13px; line-height: 18px;
+}
+.mm-range-head { color: var(--mm-secondary); font-weight: 500; }
+.mm-range-foot { color: var(--mm-ink); font-weight: 500; }
+.mm-range-track { position: relative; height: 4px; margin: 10px 0 8px; border-radius: 980px; background: var(--mm-fill); }
+.mm-range-fill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--mm-tertiary-line); }
+.mm-range-dot {
+  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+  transform: translate(-50%, -50%); background: var(--mm-ink);
+  box-shadow: 0 0 0 2px var(--mm-surface);
+}
+
+.mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: 0; padding: 0; }
+.mm-stat {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
+  padding: 11px 0; border-bottom: 1px solid var(--mm-hairline); font-size: 15px; line-height: 20px;
+}
+.mm-stat dt { color: var(--mm-secondary); }
+.mm-stat dd { margin: 0; font-weight: 500; color: var(--mm-ink); text-align: right; }
+
+.mm-profile p { margin: 0; }
+.mm-tags { font-size: 15px; line-height: 20px; font-weight: 500; color: var(--mm-ink); }
+.mm-facts { margin-top: 0.35rem !important; font-size: 14px; line-height: 20px; color: var(--mm-secondary); }
+.mm-facts a { color: var(--mm-focus); text-decoration: none; }
+.mm-facts a:hover { text-decoration: underline; }
+.mm-summary {
+  margin-top: 1rem !important; max-width: 68ch; font-size: 15px; line-height: 24px;
+  color: var(--mm-ink); text-wrap: pretty;
+}
+.mm-muted { color: var(--mm-secondary); font-size: 15px; }
+
+/* A load error takes the quote header's place, set at headline size. */
+.st-key-quote_slot [data-testid="stAlertContainer"] {
+  margin-top: 1.25rem; padding: 0; background: transparent; border: 0;
+}
+.st-key-quote_slot [data-testid="stAlertContainer"] p {
+  font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+/* Empty / error panel that takes the chart's place */
+.mm-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.5rem; height: 100%; border-radius: 18px; background: var(--mm-surface-2);
+  color: var(--mm-secondary); text-align: center; padding: 2rem;
+}
+.mm-empty strong { color: var(--mm-ink); font-size: 21px; line-height: 25px; font-weight: 600; }
+.mm-empty span { max-width: 44ch; font-size: 15px; line-height: 22px; text-wrap: pretty; }
+
+/* ---------------------------------------------------------------- notices */
+[data-testid="stAlertContainer"] {
+  border-radius: 12px; background: var(--mm-surface-2); color: var(--mm-ink);
+  border: 1px solid var(--mm-hairline);
+}
+[data-testid="stAlertContainer"] p { color: var(--mm-ink); }
+.mm-notice { margin: 0; padding: 12px; font-size: 14px; color: var(--mm-secondary); }
+
+[data-testid="stCaptionContainer"] { color: var(--mm-secondary); }
+[data-testid="stExpander"] details { border-radius: 14px; border-color: var(--mm-hairline); }
+[data-testid="stExpander"] { margin-top: 3rem; }
+
+/* The theme watcher is a zero-size helper; keep it out of the flow. */
+.st-key-theme_watch { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ---------------------------------------------------------------- tablet & phone */
+/* Below 1100px the rail wraps under the main column. Main keeps its left edge,
+   so nothing in it moves when this rule arrives; it only gets wider. */
+@media (max-width: 1099.98px) {
+  .st-key-shell > [data-testid="stLayoutWrapper"] { flex: 1 1 100% !important; max-width: 100%; }
+  .st-key-shell > [data-testid="stLayoutWrapper"]:has(> .st-key-rail) { position: static; }
+}
 @media (max-width: 640px) {
-  .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 3.5rem; }
-  /* KPI cards two-up instead of one per row */
+  [data-testid="stApp"] .mm-quote h1.mm-name { font-size: 24px; line-height: 34px; }
+  .mm-price { font-size: 52px; line-height: 72px; }
+  .mm-asof { display: none; }
+  /* Ten ranges in one 358px row */
+  .st-key-range [role="radiogroup"] { padding: 3px 2px; }
+  .st-key-range [role="radio"] { padding: 4px 0; min-width: 0; flex: 1 1 0; }
+  .st-key-range [role="radio"] p { font-size: 13px; }
+  .st-key-range { flex: 1 1 100% !important; }
+  .st-key-range [data-testid="stButtonGroup"], .st-key-range [role="radiogroup"] { width: 100%; }
   .st-key-kpi_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 0.6rem; }
-  .st-key-kpi_row [data-testid="stColumn"] { flex: 1 1 calc(50% - 0.6rem) !important;
-    min-width: calc(50% - 0.6rem) !important; width: calc(50% - 0.6rem) !important; }
-  [data-testid="stMetric"] { padding: 0.65rem 0.75rem; }
-  .mm-title { font-size: 1.4rem; }
-  .mm-price { text-align: left; }
-  .mm-price .value { font-size: 1.7rem; }
-  .mm-stats { grid-template-columns: minmax(0, 1fr); }
-  [data-testid="stMetricValue"] { font-size: 1.25rem; }
+  .st-key-kpi_row [data-testid="stColumn"] {
+    flex: 1 1 calc(50% - 0.6rem) !important; min-width: calc(50% - 0.6rem) !important;
+    width: calc(50% - 0.6rem) !important;
+  }
+  .mm-section { margin-top: 3rem; }
+  [data-testid="stApp"] .mm-section :is(h1, h2) { font-size: 26px; line-height: 32px; }
+  .mm-page-title .mm-subhead { font-size: 15px; line-height: 20px; }
+  .mm-ranges, .mm-stats { grid-template-columns: minmax(0, 1fr); }
+}
+/* Touch: segment targets are 44px tall (inside the fixed 48px rows). */
+@media (pointer: coarse) {
+  :is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radiogroup"] { padding: 0 3px; }
+  :is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"] { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="stApp"] *, [data-testid="stApp"] *::before, [data-testid="stApp"] *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
 }

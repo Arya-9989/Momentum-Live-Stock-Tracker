@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from momentum import indicators as ind
 from momentum.data import Quote, QuoteResult
+from momentum.ui import views
 from momentum.ui.kpis import build_kpis, currency_label, key_stats, periods_per_year
 from momentum.ui.views import WATCHLIST_COLUMNS, watchlist_frame
 
@@ -103,3 +106,51 @@ def test_watchlist_frame_mixes_quotes_and_errors() -> None:
     assert nope["Name"] == "No data found"
     assert math.isnan(nope["P/E"])
     assert frame["P/E"].dtype == float  # numeric so the grid never shows "None"
+
+
+# --------------------------------------------------------------------------- view helpers
+
+
+def test_chart_and_table_heights() -> None:
+    plain = views.chart_height(ind.IndicatorSettings(rsi=False))
+    assert views.chart_height(ind.IndicatorSettings(rsi=True)) == plain + 120
+    assert views.chart_height(ind.IndicatorSettings(rsi=True, macd=True)) == plain + 240
+    assert views.table_height(7) == 8 * 44 + 2
+    assert views.table_height(0) == 2 * 44 + 2
+
+
+def test_price_units() -> None:
+    assert views.price_units(EQUITY) == ("$", "")
+    assert views.price_units(INDEX) == ("", "")
+    assert views.price_units(Quote(symbol="VOD.L", name="Vodafone", currency="GBp")) == ("", "p")
+
+
+def test_chart_alt_text_states_the_range_move() -> None:
+    controls = views.ChartControls("6M", "1d", "Line", ind.IndicatorSettings())
+    text = views.chart_alt(EQUITY, history([100.0, 110.0, 120.0]), controls)
+    assert text == (
+        "Apple Inc. (AAPL), 6M daily chart: $100.00 on Jan 01, 2024 to $120.00 on "
+        "Jan 03, 2024 (+20.00%)."
+    )
+
+
+def test_stats_skip_values_already_on_a_kpi_tile() -> None:
+    kpis = build_kpis(EQUITY, history([1.0, 2.0]), "6M", "1d")
+    rows = views._kpi_labels_without_duplicates(key_stats(EQUITY), kpis)
+    labels = [label for label, _ in rows]
+    assert "Market cap" not in labels
+    assert "Previous close" in labels
+
+
+def test_trigger_value_accepts_mapping_or_attribute() -> None:
+    assert views.trigger_value({"select": "MSFT"}, "select") == "MSFT"
+    assert views.trigger_value(SimpleNamespace(select="NVDA"), "select") == "NVDA"
+    assert views.trigger_value({"select": None}, "select") is None
+    assert views.trigger_value(None, "select") is None
+
+
+def test_indicator_settings_from_controls() -> None:
+    settings = views.indicator_settings(["SMA 20", "EMA 26", "Bollinger Bands"], True, False)
+    assert settings == ind.IndicatorSettings(
+        sma_windows=(20,), ema_spans=(26,), bollinger=True, rsi=True, macd=False
+    )

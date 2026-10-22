@@ -9,47 +9,56 @@ maxUploadSize = 1
 gatherUsageStats = false
 
 [client]
+# The main menu then holds only the System / Light / Dark theme switcher and
+# "About" (set in st.set_page_config), so viewers can override their OS theme.
 toolbarMode = "minimal"
 showErrorDetails = "none"
 
 # ---------------------------------------------------------------- theme
-# Shared typography and shape; colours are defined per mode below so the app
-# follows the viewer's light/dark preference.
+# Apple Stocks-style restraint: neutral greys, numerals as the hero, and
+# market green/red reserved for price state. Tokens match src/momentum/theme.py.
+# Inter is loaded with its optical-size axis (opsz 14-32), so large figures use
+# the display cut and body text the text cut, from one variable font. The value
+# is "<family>:<css url>" only; Streamlit treats everything after the colon as the URL.
 [theme]
-font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
-headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
-headingFontWeights = [700, 650, 600, 600, 600, 600]
-codeFont = "monospace"
-baseRadius = "0.6rem"
-buttonRadius = "0.5rem"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap"
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+codeFont = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
+baseRadius = "0.625rem"
+buttonRadius = "980px"
+metricValueFontSize = "1.75rem"
+metricValueFontWeight = 600
 showWidgetBorder = true
-showSidebarBorder = true
-greenColor = "#16a34a"
-redColor = "#dc2626"
-chartCategoricalColors = ["#4f46e5", "#0891b2", "#ea580c", "#db2777", "#65a30d", "#9333ea"]
+showSidebarBorder = false
+paddingTop = "0.75rem"
+paddingBottom = "0rem"
+chartCategoricalColors = ["#2a78d6", "#eb6834", "#6250d6", "#e87ba4", "#eda100", "#1baf7a"]
 
 [theme.light]
-primaryColor = "#4f46e5"
-backgroundColor = "#f8fafc"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#0f172a"
-borderColor = "#e2e8f0"
-dataframeBorderColor = "#e2e8f0"
-dataframeHeaderBackgroundColor = "#f1f5f9"
-
-[theme.light.sidebar]
+# One action colour (Apple link blue); everything else is grey.
+primaryColor = "#0066cc"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f5f9"
+secondaryBackgroundColor = "#f5f5f7"
+textColor = "#1d1d1f"
+linkColor = "#0066cc"
+borderColor = "#d2d2d7"
+dataframeBorderColor = "#e5e5ea"
+dataframeHeaderBackgroundColor = "#f5f5f7"
+greenColor = "#1f7a35"
+redColor = "#d70015"
+grayColor = "#6e6e73"
 
 [theme.dark]
-primaryColor = "#818cf8"
-backgroundColor = "#0b1120"
-secondaryBackgroundColor = "#111827"
-textColor = "#e2e8f0"
-borderColor = "#1f2937"
-dataframeBorderColor = "#1f2937"
-dataframeHeaderBackgroundColor = "#111827"
-
-[theme.dark.sidebar]
-backgroundColor = "#0f172a"
-secondaryBackgroundColor = "#1e293b"
+# Same action blue: white text on it (tags, toggles) stays at 5.6:1.
+primaryColor = "#0066cc"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#1c1c1e"
+textColor = "#f5f5f7"
+linkColor = "#2997ff"
+borderColor = "#38383a"
+dataframeBorderColor = "#2c2c2e"
+dataframeHeaderBackgroundColor = "#1c1c1e"
+greenColor = "#30d158"
+redColor = "#ff453a"
+grayColor = "#a1a1a6"

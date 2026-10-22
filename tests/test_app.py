@@ -50,7 +50,7 @@ def test_overview_renders_kpis_chart_and_stats() -> None:
     assert "Apple Inc." in html_text(at)
     assert [m.label for m in at.metric][:2] == ["6M return", "Market cap"]
     assert len(at.get("plotly_chart")) == 1
-    assert any("Demo mode" in w.value for w in at.warning)
+    assert "Demo mode" in html_text(at)  # one-line notice, shown whenever demo data is on
 
 
 def test_index_symbol_from_url() -> None:
