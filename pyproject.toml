@@ -1,0 +1,82 @@
+[project]
+name = "momentum"
+version = "1.0.0"
+description = "Streamlit dashboard for global stocks and indices: candlesticks, technical indicators, comparison and a watchlist."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Arya Mahindrakar" }]
+requires-python = ">=3.12,<3.14"
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "streamlit>=1.50",
+    "yfinance>=0.2.66",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "plotly>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.13",
+    "mypy>=1.18",
+    "pandas-stubs>=2.2",
+]
+screenshots = ["playwright>=1.50"]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/momentum"]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PL", "PT", "RET", "TID", "N", "PD", "NPY",
+]
+ignore = [
+    "PLR0913",  # Streamlit/plotly builders legitimately take many keyword arguments
+    "PLR2004",  # magic values are fine in tests and thresholds are named where it matters
+    "PLC0415",  # deliberate lazy imports (yfinance off the demo path)
+]
+allowed-confusables = ["–"]  # en dash is intentional in "low – high" ranges
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+files = ["src", "tests", "scripts", "streamlit_app.py"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "plotly.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::FutureWarning:momentum.*"]
+
+[tool.coverage.run]
+source = ["momentum"]
+branch = true

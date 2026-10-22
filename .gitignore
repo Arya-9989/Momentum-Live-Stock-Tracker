@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+.env
+.env.*
+
+# Tooling caches and reports
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Streamlit secrets never belong in git
+.streamlit/secrets.toml
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
