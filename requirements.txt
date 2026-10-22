@@ -59,9 +59,7 @@ markupsafe==3.0.4
 multitasking==0.0.13
     # via yfinance
 narwhals==2.27.1
-    # via
-    #   altair
-    #   plotly
+    # via altair
 numpy==2.5.4
     # via
     #   momentum
@@ -72,7 +70,6 @@ numpy==2.5.4
 packaging==26.3
     # via
     #   altair
-    #   plotly
     #   streamlit
 pandas==3.0.6
     # via
@@ -85,8 +82,6 @@ pillow==13.0.0
     # via streamlit
 platformdirs==4.13.5
     # via yfinance
-plotly==7.1.0
-    # via momentum
 protobuf==7.36.2
     # via
     #   streamlit

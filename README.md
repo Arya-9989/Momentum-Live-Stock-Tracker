@@ -47,8 +47,12 @@ is an illustration and shows no market data.</sub>
   1-minute bars only for 1D). The line is green or red by the move over the range; on 1D it is
   measured against the previous close, which is drawn as a dotted reference line. One crosshair
   runs through the price, volume, RSI and MACD panels, and one readout lists every series at the
-  hovered bar, value first. Weekends, exchange holidays and overnight gaps are removed from the
-  axis, and times are shown in the exchange's local time.
+  hovered bar, value first. Weekends, exchange holidays and overnight gaps take no space on the
+  axis, and times are shown in the exchange's local time. Wheel or pinch zooms the time axis, and a
+  double-click fits it again. Click the prices and the chart offers **"Set an alert at $X"**,
+  which opens the Alerts tab with that level filled in. The charts are
+  [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) (Apache-2.0),
+  built into a Streamlit component ([ADR 0005](docs/adr/0005-lightweight-charts.md)).
 - **Technical indicators:** SMA 20/50/200, EMA 12/26, Bollinger Bands (20, 2), RSI (14, Wilder)
   and MACD (12, 26, 9), computed as StockCharts defines them (EMAs seeded with an SMA). Daily,
   weekly and monthly charts fetch at least 250 bars before the visible range, so even SMA 200 is
@@ -138,12 +142,11 @@ separation on both surfaces, that leaves out the market green and red.
   only the characters of the price, day change and KPI figures that changed roll (up when the
   value rose, down when it fell), and each ends on exactly the text a static render shows; there
   is no count through made-up numbers. The watchlist's selection slides to the row you pick as
-  you click it. A newly drawn chart keeps its axes still while its series sweep in along the time
-  axis. Only transform, opacity and clip-path animate. With `prefers-reduced-motion` the figures
-  and the selection change at once, and the chart appears without the sweep. Plotly's own
-  `layout.transition` cannot work here: `st.plotly_chart` puts the figure into the element's
-  id, so every new figure mounts a fresh plot (`Plotly.newPlot`) and never reaches the
-  `Plotly.react` path that animates.
+  you click it. When the chart shows something new (a symbol, range, interval or style), its axes
+  stay still while the series sweep in along the time axis: a curtain over the plot area scales
+  away, so only a transform moves. Only transform, opacity and clip-path animate. With
+  `prefers-reduced-motion` the figures and the selection change at once, and the chart appears
+  without the sweep.
 - **Accessibility:** one 2px focus ring everywhere. Every target is at least 24 px (WCAG 2.5.8);
   on touch screens the Overview controls are 44 px or more (the range control scrolls sideways
   rather than shrink its segments), while Streamlit's multiselect chips, the data grid's toolbar
@@ -165,7 +168,8 @@ flowchart LR
     views --> components[ui.components<br/>HTML-escaped widgets, rail component]
     views --> rail[ui.rail<br/>pure watchlist-rail model]
     charts --> theme[momentum.theme<br/>light + dark tokens]
-    views --> charts[momentum.charts<br/>Plotly figure builders]
+    views --> charts[momentum.charts<br/>chart payloads, pure]
+    views --> chartc[ui.chart_component<br/>Lightweight Charts component<br/>built from frontend/chart]
     views --> indicators[momentum.indicators<br/>SMA, EMA, RSI, MACD, BB]
     views --> cache
     subgraph data [momentum.data]
@@ -417,8 +421,12 @@ uv run mypy                  # strict mode
 - **Server** tests drive `momentum.server` as plain ASGI: gzip and its cache, pass-through for
   HEAD, Range and media requests, the rewritten document head, robots.txt, and that
   `streamlit run serve.py` detects the app.
-- **UI** tests cover the per-theme Plotly templates, line colour by direction, the previous-close
-  reference, stable series colours, the rail model and sparkline geometry, header markup and
+- **Chart** tests cover the payloads (panes, overlays, bands, line colour by direction, the
+  previous-close reference, exchange-local times, plain JSON with no NaN), and, in Chromium, the
+  built bundle itself: the readout, the sweep and its replay on a new key, reduced motion, the
+  "Set an alert at" offer and the event it sends, the TradingView attribution link, and a rebuild
+  on a style change. A browser end-to-end test runs the chart-to-alert flow in the live app.
+- **UI** tests cover stable series colours, the rail model and sparkline geometry, header markup and
   escaping, the number roll's markup, the KPI payload, and the WCAG contrast of every text colour.
 - **Motion** tests check that the stylesheets animate only transform, opacity and clip-path and
   that the chart sweep exists only without a reduced-motion preference. In Chromium (Playwright)
@@ -427,10 +435,17 @@ uv run mypy                  # strict mode
   figure moves, reduced motion shows the final value at once, and the rail's indicator lands on
   the selected row.
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, mypy, tests with coverage, a check that
-`requirements.txt` matches `uv.lock`, and a Docker build whose container must report healthy, run
-as non-root, render the app (AppTest inside the image) and serve robots.txt, the real title and a
-gzipped bundle.
+CI (`.github/workflows/ci.yml`) runs:
+
+- lint, format check, mypy and tests with coverage, with a Postgres and a Mailpit service for the
+  storage and email tests;
+- a check that `requirements.txt` matches `uv.lock`;
+- a chart job that typechecks the component, rebuilds it and fails if the committed bundle
+  differs;
+- a Docker build whose container must report healthy, run as non-root, render the app (AppTest
+  inside the image, with the chart served from the package's asset directory), migrate its SQLite
+  database, set the signed device cookie, and serve robots.txt, the real title and a gzipped
+  bundle.
 
 To refresh the README screenshots, start the app and run
 `uv run --group screenshots python scripts/capture_screenshots.py` (add `--demo` for synthetic data).
@@ -448,14 +463,26 @@ The hero images come from `uv run python scripts/make_hero.py`.
 │   ├── data.py                # providers, parsing, loaders, cached API
 │   ├── demo.py                # deterministic synthetic provider
 │   ├── indicators.py          # SMA, EMA, RSI, MACD, Bollinger, returns, drawdown
-│   ├── charts.py              # Plotly price/indicator and comparison figures
+│   ├── charts.py              # chart payloads (price + indicator panes, comparison)
+│   ├── fundamentals.py        # statements and dividends: model, Yahoo parsing, cache
+│   ├── portfolio.py           # FIFO lots, P&L and per-currency totals (pure)
+│   ├── alphavantage.py        # second provider; providers.py is the fallback chain
+│   ├── identity.py            # accounts, signed device cookies, the cookie middleware
+│   ├── settings.py            # environment configuration
+│   ├── store/                 # SQLite/Postgres, migrations, watchlist/alert/portfolio repositories
+│   ├── alerts/                # rules, evaluation, delivery, the worker loop and its CLI
+│   ├── pyproject.toml         # Streamlit component manifest (the chart's asset_dir)
 │   ├── theme.py               # light and dark design tokens
 │   ├── formatting.py          # currency-aware number formatting
 │   ├── server.py              # gzip, robots.txt and head tags around Streamlit (ASGI)
-│   └── ui/                    # views, components, KPI/rail/message models, styles.css, rail.js/css
+│   └── ui/                    # views, components, KPI/rail/message models, styles.css, rail.js/css,
+│                              # chart/ (the built chart bundle and its third-party notices)
+├── frontend/chart/            # the chart component's TypeScript source and esbuild script
 ├── tests/                     # pytest suite (no network)
 ├── scripts/                   # capture_screenshots.py, make_hero.py
-├── docs/                      # hero-light/dark.svg, screenshots/
+├── docs/                      # adr/, hero-light/dark.svg, screenshots/
+├── deploy/keycloak/           # local OIDC realm for sign-in (compose profile "oidc")
+├── compose.yaml               # Postgres, Mailpit and Keycloak for development and tests
 ├── .streamlit/config.toml     # light + dark theme
 ├── Dockerfile, .dockerignore
 ├── pyproject.toml, uv.lock, requirements.txt

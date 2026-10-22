@@ -1,0 +1,19 @@
+{
+  "name": "momentum-chart",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Momentum's price and comparison chart: a Streamlit v2 component on TradingView Lightweight Charts.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lightweight-charts": "5.2.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

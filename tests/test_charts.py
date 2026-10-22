@@ -1,6 +1,10 @@
+"""Chart payloads (momentum.charts): what the Lightweight Charts component is told to draw."""
+
 from __future__ import annotations
 
-import itertools
+import json
+import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -8,323 +12,156 @@ import pytest
 
 from momentum import charts
 from momentum import indicators as ind
-from momentum.theme import DARK, LIGHT, Theme
+from momentum.theme import DARK, LIGHT, with_alpha
 
 
-def ohlcv(index: pd.DatetimeIndex, volume: float = 1_000.0) -> pd.DataFrame:
-    close = np.linspace(100, 120, len(index))
+def ohlcv(
+    closes: list[float], *, volume: float = 1_000.0, start: str = "2024-01-01"
+) -> pd.DataFrame:
+    index = pd.bdate_range(start, periods=len(closes), name="Date")
+    close = np.asarray(closes, dtype=float)
     return pd.DataFrame(
-        {
-            "Open": close - 0.5,
-            "High": close + 1,
-            "Low": close - 1,
-            "Close": close,
-            "Volume": volume,
-        },
+        {"Open": close - 1, "High": close + 1, "Low": close - 2, "Close": close, "Volume": volume},
         index=index,
     )
 
 
-class TestRangebreaks:
-    def test_daily_equities_hide_weekends_and_holidays(self) -> None:
-        days = pd.bdate_range("2024-12-20", "2025-01-03")
-        days = days[~days.isin([pd.Timestamp("2024-12-25"), pd.Timestamp("2025-01-01")])]
-        breaks = charts.compute_rangebreaks(days, "1d")
-        assert {"bounds": ["sat", "mon"]} in breaks
-        assert {"values": ["2024-12-25", "2025-01-01"]} in breaks
+def series(payload: dict[str, Any], sid: str) -> dict[str, Any]:
+    return next(s for s in payload["series"] if s["id"] == sid)
 
-    def test_crypto_trading_on_weekends_keeps_weekends(self) -> None:
-        days = pd.date_range("2024-01-01", periods=14, freq="D")
-        assert charts.compute_rangebreaks(days, "1d") == []
 
-    def test_intraday_hides_overnight_session_gap(self) -> None:
-        sessions = [
-            pd.date_range(f"2024-03-0{d} 09:30", f"2024-03-0{d} 15:45", freq="15min")
-            for d in (4, 5)
+RISING = ohlcv([float(v) for v in np.linspace(100, 160, 260)])
+
+
+class TestPriceChart:
+    def test_panes_follow_the_selected_indicators(self) -> None:
+        settings = ind.IndicatorSettings(sma_windows=(20,), rsi=True, macd=True)
+        payload = charts.price_chart(ind.add_indicators(RISING, settings), interval="1d")
+        assert [p["label"] for p in payload["panes"]] == [
+            "",
+            "Volume",
+            "RSI (14)  ·  30 / 70 band",
+            "MACD (12, 26, 9)  ·  solid MACD, dotted signal",
         ]
-        index = pd.DatetimeIndex(sessions[0].append(sessions[1]))
-        breaks = charts.compute_rangebreaks(index, "15m")
-        assert {"pattern": "hour", "bounds": [16.0, 9.5]} in breaks
+        assert [p["weight"] for p in payload["panes"]] == [3.4, 0.8, 1.0, 1.0]
+        assert payload["panes"][2]["fixedRange"] == [0, 100]
+        panes = {s["id"]: s["pane"] for s in payload["series"]}
+        assert panes == {
+            "close": 0, "SMA 20": 0, "volume": 1, "rsi": 2, "macd_hist": 3, "macd": 3, "signal": 3,
+        }  # fmt: skip
+        assert {"pane": 2, "color": LIGHT.band, "from": 70, "to": 30} in payload["bands"]
 
-    def test_weekly_bars_need_no_breaks(self) -> None:
-        index = pd.date_range("2024-01-05", periods=10, freq="W-FRI")
-        assert charts.compute_rangebreaks(index, "1wk") == []
+    def test_indices_have_no_volume_pane(self) -> None:
+        payload = charts.price_chart(ohlcv([1.0, 2.0, 3.0], volume=0.0), interval="1d")
+        assert len(payload["panes"]) == 1
+        assert all(s["id"] != "volume" for s in payload["series"])
 
-    def test_too_few_points(self) -> None:
-        assert (
-            charts.compute_rangebreaks(pd.DatetimeIndex([pd.Timestamp("2024-01-01")]), "1d") == []
+    def test_line_is_an_area_coloured_by_direction(self) -> None:
+        up = series(charts.price_chart(RISING, interval="1d"), "close")
+        assert up["kind"] == "area"
+        assert up["color"] == LIGHT.up
+        assert up["areaTop"] == with_alpha(LIGHT.up, charts.AREA_TOP_ALPHA)
+        falling = charts.price_chart(ohlcv([10.0, 9.0, 8.0]), interval="1d", theme=DARK)
+        assert series(falling, "close")["color"] == DARK.down
+        flat = series(charts.price_chart(ohlcv([5.0, 5.0]), interval="1d"), "close")
+        assert flat["color"] == LIGHT.flat
+
+    def test_previous_close_decides_the_colour_on_1d_and_draws_a_line(self) -> None:
+        frame = ohlcv([10.0, 11.0, 10.5])  # up over the window, down on the day
+        payload = charts.price_chart(
+            frame, interval="5m", reference=12.0, reference_label="Previous close $12.00"
         )
+        assert series(payload, "close")["color"] == LIGHT.down
+        assert payload["reference"] == {"price": 12.0, "label": "Previous close $12.00"}
+        assert payload["intraday"] is True
+        assert "reference" not in charts.price_chart(frame, interval="1d", reference=math.nan)
 
+    def test_candles(self) -> None:
+        payload = charts.price_chart(
+            RISING.head(3), interval="1d", style="Candles", price_prefix="$"
+        )
+        candles = payload["candles"]
+        assert candles["label"] == "Close"
+        assert candles["bars"][0][1:] == [99.0, 101.0, 98.0, 100.0]
+        assert all(s["kind"] != "area" for s in payload["series"])
+        volume = series(payload, "volume")
+        assert volume["color"] == LIGHT.neutral_bar  # price state colours stay on the candles
+        assert volume["format"] == {"kind": "compact", "decimals": 2}
 
-def subplot_count(fig: object) -> int:
-    layout = fig.layout  # type: ignore[attr-defined]
-    return sum(1 for key in layout.to_plotly_json() if key.startswith("yaxis"))
+    def test_price_format_carries_units(self) -> None:
+        payload = charts.price_chart(RISING, interval="1d", price_suffix="p", price_decimals=2)
+        assert series(payload, "close")["format"] == {
+            "kind": "price", "prefix": "", "suffix": "p", "decimals": 2,
+        }  # fmt: skip
 
+    def test_overlays_keep_their_colours_and_bands_fill_between(self) -> None:
+        settings = ind.IndicatorSettings(sma_windows=(50,), ema_spans=(12,), bollinger=True)
+        payload = charts.price_chart(ind.add_indicators(RISING, settings), interval="1d")
+        assert series(payload, "SMA 50")["color"] == LIGHT.series[1]
+        assert series(payload, "EMA 12")["color"] == LIGHT.series[3]
+        assert series(payload, "BB Upper")["color"] == LIGHT.tertiary
+        band = {"pane": 0, "color": LIGHT.band, "upper": "BB Upper", "lower": "BB Lower"}
+        assert band in payload["bands"]
+        assert all(s["id"] != "BB Middle" for s in payload["series"])
 
-def test_price_chart_panels_follow_selected_indicators() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
-    settings = ind.IndicatorSettings(sma_windows=(20,), bollinger=True, rsi=True, macd=True)
-    fig = charts.price_chart(ind.add_indicators(frame, settings), interval="1d")
-    names = [trace.name for trace in fig.data]
-    assert {"Price", "SMA 20", "Bollinger (20, 2)", "Volume", "RSI 14", "MACD", "Signal"} <= set(
-        names
-    )
-    assert subplot_count(fig) == 4
+    def test_missing_values_are_null_and_times_are_exchange_local(self) -> None:
+        frame = ind.add_indicators(RISING.head(30), ind.IndicatorSettings(sma_windows=(20,)))
+        sma = series(charts.price_chart(frame, interval="1d"), "SMA 20")["points"]
+        assert sma[0][1] is None  # undefined before 20 bars, not 0
+        assert sma[19][1] is not None
+        assert sma[0][0] == int(pd.Timestamp("2024-01-01").timestamp())
+        aware = RISING.head(2).tz_localize("Asia/Kolkata")
+        assert charts.seconds(aware.index)[0] == int(pd.Timestamp("2024-01-01").timestamp())
 
-
-def test_price_chart_drops_volume_panel_for_indices() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=30), volume=0.0)
-    fig = charts.price_chart(frame, interval="1d")
-    assert "Volume" not in [trace.name for trace in fig.data]
-    assert subplot_count(fig) == 1
-
-
-@pytest.mark.parametrize(("style", "trace_type"), [("Candles", "candlestick"), ("Line", "scatter")])
-def test_price_chart_style(style: charts.ChartStyle, trace_type: str) -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10))
-    fig = charts.price_chart(frame, interval="1d", style=style, price_prefix="$")
-    assert fig.data[0].type == trace_type
-    assert fig.layout.yaxis.tickprefix == "$"
-
-
-def test_price_chart_labels_minor_units() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10))
-    fig = charts.price_chart(frame, interval="1d", price_suffix="p")
-    assert fig.layout.yaxis.ticksuffix == "p"
-
-
-def test_comparison_chart_has_one_line_per_symbol() -> None:
-    normalized = pd.DataFrame(
-        {"AAPL": [0.0, 1.0], "MSFT": [0.0, -2.0]}, index=pd.date_range("2024-01-01", periods=2)
-    )
-    fig = charts.comparison_chart(normalized)
-    assert [trace.name for trace in fig.data] == ["AAPL", "MSFT"]
-    assert fig.layout.yaxis.ticksuffix == "%"
-
-
-# --------------------------------------------------------------------------- redesign
-
-
-@pytest.mark.parametrize("scheme", [LIGHT, DARK])
-def test_template_is_designed_per_theme(scheme: Theme) -> None:
-    layout = charts.plotly_template(scheme).layout
-    assert layout.font.color == scheme.ink
-    assert layout.hoverlabel.bgcolor == scheme.hover_bg
-    assert layout.hovermode == "x unified"  # crosshair readout lists every series
-    assert layout.xaxis.spikemode == "across"
-    assert layout.xaxis.spikedash == "solid"
-    assert layout.yaxis.gridcolor == scheme.grid
-    assert layout.yaxis.side == "right"
-    assert list(layout.colorway) == list(scheme.series)
-
-
-def test_line_is_the_default_style_with_an_area_gradient() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=30))  # rising closes
-    fig = charts.price_chart(frame, interval="1d")
-    price = fig.data[0]
-    assert price.type == "scatter"
-    assert price.fill == "tozeroy"
-    assert price.line.color == LIGHT.up
-    low, high = fig.layout.yaxis.range
-    assert price.fillgradient.start == low
-    assert price.fillgradient.stop == high
-    assert 100 > low > 0  # the axis is not stretched down to zero by the fill
-
-
-def test_line_colour_tracks_direction_and_theme() -> None:
-    falling = ohlcv(pd.bdate_range("2024-01-01", periods=10)).iloc[::-1]
-    falling.index = pd.bdate_range("2024-01-01", periods=10)
-    assert charts.price_chart(falling, interval="1d", theme=DARK).data[0].line.color == DARK.down
-
-
-def test_previous_close_reference_sets_colour_range_and_line() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10))  # closes 100 -> 120
-    fig = charts.price_chart(frame, interval="1d", reference=130.0, reference_label="Prev 130")
-    assert fig.data[0].line.color == LIGHT.down  # 120 is below the previous close
-    assert fig.layout.yaxis.range[1] > 130.0
-    assert [s.y0 for s in fig.layout.shapes] == [130.0]
-    assert "Prev 130" in [a.text for a in fig.layout.annotations]
-
-
-def test_candles_use_price_state_colours_and_volume_is_neutral() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10))
-    fig = charts.price_chart(frame, interval="1d", style="Candles", theme=DARK)
-    candles = fig.data[0]
-    assert candles.increasing.line.color == DARK.up
-    assert candles.decreasing.line.color == DARK.down
-    volume = next(t for t in fig.data if t.name == "Volume")
-    assert volume.marker.color == DARK.neutral_bar
-
-
-def test_legend_only_lists_price_overlays() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
-    plain = charts.price_chart(
-        ind.add_indicators(frame, ind.IndicatorSettings(sma_windows=(), rsi=True, macd=True)),
-        interval="1d",
-    )
-    assert plain.layout.showlegend is False
-    oscillators = [t for t in plain.data if t.name in {"RSI 14", "MACD", "Signal"}]
-    assert len(oscillators) == 3
-    assert all(t.showlegend is False for t in oscillators)
-    with_sma = charts.price_chart(
-        ind.add_indicators(frame, ind.IndicatorSettings(sma_windows=(50,), rsi=False)),
-        interval="1d",
-    )
-    assert with_sma.layout.showlegend is True
-    sma = next(t for t in with_sma.data if t.name == "SMA 50")
-    assert sma.line.color == LIGHT.series[1]  # same colour as when SMA 20 is also on
-
-
-def test_backgrounds_are_explicitly_transparent() -> None:
-    fig = charts.price_chart(ohlcv(pd.bdate_range("2024-01-01", periods=5)), interval="1d")
-    assert fig.layout.plot_bgcolor == "rgba(0,0,0,0)"
-    assert fig.layout.paper_bgcolor == "rgba(0,0,0,0)"
-
-
-@pytest.mark.parametrize(
-    ("values", "expected"),
-    [
-        ([100.0, 110.0], (99.4, 110.6)),
-        ([5.0, 5.0], (4.994, 5.006)),
-        ([0.0, 0.0], (-0.06, 0.06)),
-    ],
-)
-def test_padded_range(values: list[float], expected: tuple[float, float]) -> None:
-    bounds = charts.padded_range(values)
-    assert bounds is not None
-    assert bounds[0] == pytest.approx(expected[0])
-    assert bounds[1] == pytest.approx(expected[1])
-
-
-def test_padded_range_ignores_missing_values() -> None:
-    assert charts.padded_range([float("nan")]) is None
-    assert charts.padded_range([1.0, float("nan"), 3.0]) == pytest.approx((0.88, 3.12))
+    def test_payload_is_plain_json(self) -> None:
+        settings = ind.IndicatorSettings(bollinger=True, rsi=True, macd=True)
+        payload = charts.price_chart(
+            ind.add_indicators(RISING, settings),
+            interval="1d",
+            key="AAPL|6M|1d|Line",
+            alt="Apple",
+            pickable=True,
+        )
+        text = json.dumps(payload, allow_nan=False)  # NaN would break the browser's JSON.parse
+        assert json.loads(text)["pick"] == {"label": "Set an alert at"}
+        assert payload["key"] == "AAPL|6M|1d|Line"
+        assert payload["theme"]["surface"] == LIGHT.surface
 
 
 def test_trend_change() -> None:
-    close = pd.Series([10.0, 12.0, 11.0])
-    assert charts.trend_change(close) == pytest.approx(1.0)
-    assert charts.trend_change(close, reference=12.5) == pytest.approx(-1.5)
+    close = pd.Series([1.0, np.nan, 3.0])
+    assert charts.trend_change(close) == 2.0
+    assert charts.trend_change(close, reference=4.0) == -1.0
     assert charts.trend_change(pd.Series([], dtype=float)) is None
 
 
 def test_series_slots_are_stable_when_symbols_change() -> None:
     first = charts.assign_series_slots(["AAPL", "MSFT", "^GSPC"])
     assert first == {"AAPL": 0, "MSFT": 1, "^GSPC": 2}
-    # Removing MSFT does not repaint ^GSPC; a newcomer takes the free slot.
-    second = charts.assign_series_slots(["AAPL", "^GSPC", "NVDA"], first)
-    assert second == {"AAPL": 0, "^GSPC": 2, "NVDA": 1}
+    second = charts.assign_series_slots(["MSFT", "^GSPC", "NVDA"], first)
+    assert second == {"MSFT": 1, "^GSPC": 2, "NVDA": 0}
+    assert charts.assign_series_slots(["A", "B"], {"A": 9}) == {"A": 0, "B": 1}
 
 
-def test_comparison_chart_marks_only_the_last_point() -> None:
-    normalized = pd.DataFrame(
-        {"AAPL": [0.0, 1.0, float("nan")]}, index=pd.date_range("2024-01-01", periods=3)
-    )
-    fig = charts.comparison_chart(normalized, theme=DARK)
-    trace = fig.data[0]
-    assert list(trace.marker.size) == [0, 9, 0]  # last *valid* point
-    assert trace.line.color == DARK.series[0]
-    assert fig.layout.yaxis.tickformat == ".0f"  # "0%", not "+0%"
+class TestComparisonChart:
+    def normalized(self) -> pd.DataFrame:
+        index = pd.bdate_range("2024-01-01", periods=3)
+        return pd.DataFrame({"AAPL": [0.0, 5.0, 12.4], "MSFT": [0.0, -1.0, np.nan]}, index=index)
+
+    def test_one_labelled_line_per_symbol_with_a_zero_baseline(self) -> None:
+        payload = charts.comparison_chart(self.normalized(), theme=DARK, key="AAPL|MSFT|1Y")
+        assert payload["zeroLine"] is True
+        aapl, msft = payload["series"]
+        assert (aapl["title"], aapl["lastValue"], aapl["color"]) == ("AAPL", True, DARK.series[0])
+        assert aapl["format"] == {"kind": "percent", "decimals": 2, "signed": True}
+        assert msft["points"][2][1] is None
+        assert payload["key"] == "AAPL|MSFT|1Y"
+
+    def test_colours_follow_the_slots(self) -> None:
+        payload = charts.comparison_chart(self.normalized(), slots={"AAPL": 4, "MSFT": 2})
+        assert [s["color"] for s in payload["series"]] == [LIGHT.series[4], LIGHT.series[2]]
 
 
-# --------------------------------------------------------------------------- quality pass
-
-
-def test_price_range_keeps_overlays_in_view() -> None:
-    """SMA 50 / SMA 200 / Bollinger lines were clipped: the range used Close only."""
-    closes = np.r_[np.linspace(100, 60, 200), np.linspace(60, 70, 60)]
-    index = pd.bdate_range("2024-01-01", periods=len(closes))
-    frame = pd.DataFrame(
-        {"Open": closes, "High": closes + 1, "Low": closes - 1, "Close": closes, "Volume": 1.0},
-        index=index,
-    )
-    settings = ind.IndicatorSettings(sma_windows=(200,), bollinger=True, rsi=False)
-    visible = ind.add_indicators(frame, settings).iloc[-60:]
-    fig = charts.price_chart(visible, interval="1d")
-    low, high = fig.layout.yaxis.range
-    for column in ("Close", "SMA 200", "BB Upper", "BB Lower"):
-        assert low <= visible[column].min()
-        assert visible[column].max() <= high
-    candles = charts.price_chart(visible, interval="1d", style="Candles")
-    c_low, c_high = candles.layout.yaxis.range
-    assert c_low <= visible["Low"].min()
-    assert visible["SMA 200"].max() <= c_high
-
-
-def test_one_crosshair_and_readout_span_every_panel() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
-    settings = ind.IndicatorSettings(sma_windows=(20,), bollinger=True, rsi=True, macd=True)
-    fig = charts.price_chart(ind.add_indicators(frame, settings), interval="1d")
-    layout = fig.layout
-    assert layout.hovermode == "x unified"
-    assert layout.hoversubplots == "axis"
-    # Every trace shares the one x-axis; panels are y-domains stacked on it.
-    assert {trace.xaxis or "x" for trace in fig.data} == {"x"}
-    assert {trace.yaxis for trace in fig.data} == {"y", "y2", "y3", "y4"}
-    assert layout.xaxis.anchor == "y4"  # dates under the bottom panel
-    domains = [layout[f"yaxis{n}" if n > 1 else "yaxis"].domain for n in (1, 2, 3, 4)]
-    assert all(upper[0] > lower[1] for upper, lower in itertools.pairwise(domains))
-    # Every series reports in the readout, value first; nothing is skipped.
-    assert all(trace.hoverinfo != "skip" for trace in fig.data)
-    sma = next(t for t in fig.data if t.name == "SMA 20")
-    assert sma.hovertemplate.startswith("<b>")
-    assert "SMA 20" in sma.hovertemplate
-
-
-def test_volume_ticks_read_like_finance_not_si() -> None:
-    assert charts.compact_ticks(2.3e9) == ([1e9, 2e9], ["1B", "2B"])
-    assert charts.compact_ticks(180e6) == ([5e7, 1e8], ["50M", "100M"])
-    assert charts.compact_ticks(5_300.0) == ([2_500.0, 5_000.0], ["2.5K", "5K"])
-    assert charts.compact_ticks(0.0) == ([], [])
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=10), volume=2.3e9)
-    fig = charts.price_chart(frame, interval="1d")
-    assert list(fig.layout.yaxis2.ticktext) == ["1B", "2B"]
-
-
-def test_macd_axis_uses_significant_digits() -> None:
-    frame = ohlcv(pd.bdate_range("2024-01-01", periods=60))
-    fig = charts.price_chart(
-        ind.add_indicators(frame, ind.IndicatorSettings(sma_windows=(), rsi=False, macd=True)),
-        interval="1d",
-        price_decimals=4,
-    )
-    assert fig.layout.yaxis3.tickformat == ".3~r"
-    macd = next(t for t in fig.data if t.name == "MACD")
-    assert ":,.4f}" in macd.hovertemplate
-
-
-@pytest.mark.parametrize(
-    ("values", "gap", "expected"),
-    [
-        ([0.0, 10.0], 1.0, [0.0, 10.0]),  # far apart: untouched
-        ([5.0, 5.2], 1.0, [4.6, 5.6]),  # spread evenly around their mean
-        ([3.0, 1.0, 1.0], 1.0, [3.0, 0.5, 1.5]),  # order of the input is kept
-        ([0.0, 0.5, 1.0], 1.0, [-0.5, 0.5, 1.5]),  # a chain merges into one group
-    ],
-)
-def test_dodge(values: list[float], gap: float, expected: list[float]) -> None:
-    assert charts.dodge(values, gap) == pytest.approx(expected)
-
-
-def test_comparison_chart_is_direct_labelled_without_x_padding() -> None:
-    index = pd.date_range("2024-01-01", periods=3)
-    normalized = pd.DataFrame(
-        {"AAPL": [0.0, 5.0, 12.4], "MSFT": [0.0, 4.0, 12.3], "^GSPC": [0.0, -1.0, -2.0]},
-        index=index,
-    )
-    fig = charts.comparison_chart(normalized)
-    labels = {a.text: a for a in fig.layout.annotations}
-    assert set(labels) == {"AAPL +12.4%", "MSFT +12.3%", "^GSPC -2.0%"}
-    assert all(a.font.color == LIGHT.ink for a in labels.values())  # text ink, not series colour
-    assert labels["AAPL +12.4%"].y > labels["MSFT +12.3%"].y  # dodged apart, order kept
-    assert list(fig.layout.xaxis.range) == [index[0], index[-1]]
-    assert fig.layout.yaxis.side == "left"
-    assert fig.layout.showlegend is True
-
-
-def test_comparison_chart_skips_direct_labels_past_four_series() -> None:
-    normalized = pd.DataFrame(
-        {s: [0.0, float(i)] for i, s in enumerate("ABCDE")},
-        index=pd.date_range("2024-01-01", periods=2),
-    )
-    assert not charts.comparison_chart(normalized).layout.annotations
+@pytest.mark.parametrize("value", [float("inf"), float("nan"), None, "x"])
+def test_points_drop_non_finite_values(value: object) -> None:
+    assert charts.points([1], [value]) == [[1, None]]

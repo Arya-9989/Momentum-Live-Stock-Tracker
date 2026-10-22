@@ -1,7 +1,7 @@
 [project]
 name = "momentum"
 version = "1.0.0"
-description = "Streamlit dashboard for global stocks and indices: candlesticks, technical indicators, comparison and a watchlist."
+description = "Streamlit dashboard for global stocks and indices: candlesticks, technical indicators, comparison, a watchlist, alerts and a portfolio."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -12,16 +12,16 @@ classifiers = [
     "Topic :: Office/Business :: Financial :: Investment",
 ]
 # Lower bounds are the versions this code is tested with where it relies on recent
-# APIs: st.App, widget `bind=` / `persist_state=` (Streamlit 1.66), hoversubplots
-# and candlestick hovertemplates (Plotly 7.1). Starlette is imported directly by
-# momentum.server, so it is declared rather than relied on through Streamlit.
+# APIs: st.App, widget `bind=` / `persist_state=` and packaged v2 components with
+# asset_dir (Streamlit 1.66). Starlette is imported directly by momentum.server, so
+# it is declared rather than relied on through Streamlit. The charts are a built
+# component (frontend/chart, TradingView Lightweight Charts), not a Python package.
 dependencies = [
     "streamlit>=1.66",
     "starlette>=0.46",
     "yfinance>=0.2.66",
     "pandas>=2.2",
     "numpy>=2.0",
-    "plotly>=7.1",
     # The Alpha Vantage provider's HTTP client (and its MockTransport replays recorded responses).
     "httpx>=0.28",
 ]
@@ -64,7 +64,7 @@ select = [
     "E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PL", "PT", "RET", "TID", "N", "PD", "NPY",
 ]
 ignore = [
-    "PLR0913",  # Streamlit/plotly builders legitimately take many keyword arguments
+    "PLR0913",  # Streamlit widgets and chart builders legitimately take many keyword arguments
     "PLR2004",  # magic values are fine in tests and thresholds are named where it matters
     "PLC0415",  # deliberate lazy imports (yfinance off the demo path)
 ]
@@ -84,7 +84,7 @@ files = ["src", "tests", "scripts", "streamlit_app.py", "serve.py"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "plotly.*", "brotli", "authlib.*"]
+module = ["yfinance.*", "brotli", "authlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

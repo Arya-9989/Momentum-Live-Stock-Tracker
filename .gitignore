@@ -32,3 +32,6 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Chart component build (frontend/chart): dependencies only; the bundle is committed
+node_modules/

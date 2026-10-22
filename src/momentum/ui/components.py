@@ -66,7 +66,7 @@ _KPIS = st.components.v2.component(
 
 # A zero-height page helper with two jobs:
 # 1. Streamlit does not rerun when the viewer switches theme (from the OS or the
-#    main menu), but the Plotly figures are drawn per theme on the server. It
+#    main menu), but the charts are drawn per theme on the server. It
 #    notices the switch and asks for exactly one rerun (it remembers the scheme
 #    it reported, so a rerun can never trigger another).
 # 2. On touch screens the range controls scroll sideways so every segment is a
@@ -593,9 +593,3 @@ def csv_download(
         type="tertiary",
         key=key,
     )
-
-
-def plotly_config() -> dict[str, Any]:
-    # Drag to zoom, double-click to reset; the modebar is hidden because it
-    # overlaps the legend on phones and adds little over those gestures.
-    return {"displaylogo": False, "displayModeBar": False, "scrollZoom": False, "responsive": True}

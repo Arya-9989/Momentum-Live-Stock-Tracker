@@ -9,6 +9,7 @@
 .momentum
 compose.yaml
 deploy
+frontend
 htmlcov
 **/__pycache__
 **/*.pyc

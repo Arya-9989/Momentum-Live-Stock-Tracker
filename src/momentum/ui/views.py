@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 import pandas as pd
 import streamlit as st
@@ -16,7 +17,7 @@ from momentum.charts import CHART_STYLES, ChartStyle
 from momentum.data import DataError, Quote
 from momentum.identity import Identity
 from momentum.theme import Theme
-from momentum.ui import components, messages, rail, saved, session
+from momentum.ui import chart_component, components, messages, rail, saved, session
 from momentum.ui.kpis import Kpi, build_kpis, key_stats
 
 OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
@@ -236,7 +237,7 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
     frame = data.visible_window(ind.add_indicators(full_history, controls.indicators), period)
     prefix, suffix = price_units(quote)
     reference = quote.previous_close if controls.range_label == "1D" else None
-    figure = charts.price_chart(
+    payload = charts.price_chart(
         frame,
         interval=controls.interval,
         style=controls.style,
@@ -251,15 +252,14 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
         ),
         height=chart_height(controls.indicators),
         theme=theme,
+        # What the chart shows: a change of any part replays the sweep-in.
+        key=f"{symbol}|{controls.range_label}|{controls.interval}|{controls.style}",
+        alt=chart_alt(quote, history, controls),
+        pickable=True,
     )
     with chart_slot:
-        st.plotly_chart(
-            figure,
-            theme=None,
-            height=chart_height(controls.indicators),
-            config=components.plotly_config(),
-            key="price_chart",
-            alt=chart_alt(quote, history, controls),
+        chart_component.chart(
+            payload, key="price_chart", on_alert=partial(alert_from_chart, symbol, quote.price)
         )
     bars = f"{len(history):,} {config.INTERVAL_LABELS[controls.interval].lower()} bars"
     note = (
@@ -268,7 +268,8 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
     )
     if quote_error:
         note += f". Some quote details are unavailable: {quote_error}"
-    footnote.caption(note)
+    # Two lines (a Markdown hard break): what the chart shows, then whose chart it is.
+    footnote.caption(f"{note}  \n{chart_component.ATTRIBUTION}")
 
     _details(symbol, quote=quote, history=history, frame=frame, controls=controls, demo=demo)
 
@@ -388,15 +389,16 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
     summary_alt = ", ".join(
         f"{c} {fmt.format_percent(ind.period_return(closes[c]))}" for c in closes.columns
     )
+    payload = charts.comparison_chart(
+        normalized,
+        theme=theme,
+        slots=slots,
+        height=COMPARE_HEIGHT,
+        key=f"{'|'.join(map(str, closes.columns))}|{range_label}",
+        alt=f"Cumulative return over {range_label}: {summary_alt}.",
+    )
     with chart_slot:
-        st.plotly_chart(
-            charts.comparison_chart(normalized, theme=theme, slots=slots, height=COMPARE_HEIGHT),
-            theme=None,
-            height=COMPARE_HEIGHT,
-            config=components.plotly_config(),
-            key="compare_chart",
-            alt=f"Cumulative return over {range_label}: {summary_alt}.",
-        )
+        chart_component.chart(payload, key="compare_chart")
     if errors:
         components.fineprint(messages.not_shown(errors, transient))
     if rejected:
@@ -454,6 +456,22 @@ def watchlist_symbols() -> list[str]:
 def open_symbol(symbol: str) -> None:
     st.session_state["ticker"] = symbol
     st.session_state["view"] = "Overview"
+
+
+def alert_from_chart(symbol: str, current: float | None) -> None:
+    """The chart's "Set an alert at ..." choice: prefill the alert form and open it."""
+    from momentum.alerts.rules import CONDITIONS_BY_KEY
+
+    price = chart_component.alert_price(st.session_state.get("price_chart"))
+    if price is None:
+        return
+    condition = "price_below" if current is not None and price < current else "price_above"
+    st.session_state["alert_symbol"] = symbol
+    st.session_state["alert_condition"] = condition
+    st.session_state["alert_level"] = price
+    # Mark the level as chosen for this symbol and condition, so the form keeps it.
+    st.session_state["_alert_level_for"] = (symbol, CONDITIONS_BY_KEY[condition].key)
+    st.session_state["view"] = "Alerts"
 
 
 def _open_from_watchlist() -> None:
