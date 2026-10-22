@@ -251,7 +251,7 @@
   box-shadow: 0 0 0 2px var(--mm-surface);
 }
 
-.mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: 0; padding: 0; }
+[data-testid="stApp"] .mm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: 0; padding: 0; }
 .mm-stat {
   display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
   padding: 11px 0; border-bottom: 1px solid var(--mm-hairline); font-size: 15px; line-height: 20px;
@@ -331,7 +331,7 @@
   .mm-section { margin-top: 3rem; }
   [data-testid="stApp"] .mm-section :is(h1, h2) { font-size: 26px; line-height: 32px; }
   .mm-page-title .mm-subhead { font-size: 15px; line-height: 20px; }
-  .mm-ranges, .mm-stats { grid-template-columns: minmax(0, 1fr); }
+  .mm-ranges, [data-testid="stApp"] .mm-stats { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 380px) {
   /* Instrument type and currency step aside so the market-state badge fits. */
