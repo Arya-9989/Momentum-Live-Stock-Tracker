@@ -15,7 +15,7 @@ from momentum import indicators as ind
 from momentum.charts import CHART_STYLES, ChartStyle
 from momentum.data import DataError, Quote
 from momentum.theme import Theme
-from momentum.ui import components, rail
+from momentum.ui import components, messages, rail
 from momentum.ui.kpis import Kpi, build_kpis, key_stats
 
 OVERLAYS = ("SMA 20", "SMA 50", "SMA 200", "EMA 12", "EMA 26", "Bollinger Bands")
@@ -210,15 +210,14 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
             symbol, config.fetch_period(option.period, controls.interval), controls.interval, demo
         )
     except DataError as exc:
-        with header_slot.container():
-            st.error(str(exc), icon=":material/error:")
+        # One designed state: the headline says what happened and what to do next;
+        # the chart panel stays quiet instead of repeating it.
+        # Invalid input is quoted as typed in the headline, so no symbol line above it.
+        shown = "" if isinstance(exc, data.InvalidSymbolError) else raw_symbol
+        with header_slot:
+            components.error_header(shown, messages.describe(exc, raw_symbol))
         with chart_slot:
-            components.empty_panel(
-                "Nothing to chart yet.",
-                "Try a symbol from your watchlist, or switch on demo data if Yahoo Finance "
-                "is unreachable.",
-                height=height,
-            )
+            components.error_panel(messages.chart_note(exc), height=height, compact=True)
         return
 
     quote, quote_error = load_quote(symbol, full_history, demo)
@@ -360,19 +359,18 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
             components.chart_skeleton(COMPARE_HEIGHT)
 
     symbols, rejected = data.parse_symbol_list(raw, config.MAX_COMPARE)
-    if rejected:
-        st.warning(f"Ignored invalid symbols: {', '.join(rejected)}")
     if not symbols:
-        chart_slot.info("Add at least one symbol to compare.")
+        with chart_slot:
+            components.error_panel(NOTHING_TO_COMPARE, height=COMPARE_HEIGHT)
         return
 
     option = config.get_range(range_label)
     interval = "1d" if "1d" in option.intervals else option.default_interval
-    closes, errors, _ = data.cached_closes(tuple(symbols), option.period, interval, demo)
-    for failed, message in errors.items():
-        st.warning(f"**{failed}**: {message}")
+    closes, errors, transient = data.cached_closes(tuple(symbols), option.period, interval, demo)
     if closes.empty:
-        chart_slot.empty()
+        # Every symbol failed: say so where the chart would be, not below the fold.
+        with chart_slot:
+            components.error_panel(messages.batch_failure(errors, transient), height=COMPARE_HEIGHT)
         return
 
     slots = charts.assign_series_slots(closes.columns, st.session_state.get("_compare_slots"))
@@ -390,14 +388,17 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
             key="compare_chart",
             alt=f"Cumulative return over {range_label}: {summary_alt}.",
         )
+    if errors:
+        components.fineprint(messages.not_shown(errors, transient))
+    if rejected:
+        components.fineprint(f"Ignored, not ticker symbols: {', '.join(rejected)}.")
 
-    ppy = 365 if interval == "1d" and all(s.endswith("-USD") for s in closes.columns) else None
     rows = [
         {
             "Symbol": column,
             "Return": ind.period_return(closes[column]),
             "Volatility (ann.)": ind.annualized_volatility(
-                closes[column], ppy or {"1d": 252, "1wk": 52, "1mo": 12}.get(interval, 252)
+                closes[column], bars_per_year(closes[column], interval)
             ),
             "Max drawdown": ind.max_drawdown(closes[column]),
             "Start": closes[column].dropna().index[0],
@@ -417,6 +418,20 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
     )
     export = closes.join(normalized.add_suffix(" return %"))
     components.csv_download(export, f"comparison_{range_label}.csv", key="dl_compare")
+
+
+NOTHING_TO_COMPARE = messages.Copy(
+    "Nothing to compare yet.", "Add a symbol above, for example AAPL, LT.NS or ^GSPC."
+)
+
+
+def bars_per_year(close: pd.Series, interval: str) -> int:
+    """Annualisation factor for one series: daily bars of anything that trades at
+    weekends (crypto) count 365 a year, other daily bars 252."""
+    if interval == "1d":
+        index = pd.DatetimeIndex(close.dropna().index)
+        return 365 if bool((index.dayofweek >= 5).any()) else 252
+    return {"1wk": 52, "1mo": 12, "3mo": 4}.get(interval, 252)
 
 
 # --------------------------------------------------------------------------- watchlist
@@ -464,6 +479,11 @@ def watchlist_rail(selected: str | None, demo: bool) -> None:
         components.notice("Your watchlist is empty. Add symbols in the Watchlist tab.")
         return
     results = data.cached_quotes(tuple(symbols), demo)
+    failure = messages.batch_from_results(results)
+    if failure is not None:
+        # One calm message instead of the same error on every row.
+        components.error_panel(failure, height=rail.rail_height(len(symbols)), compact=True)
+        return
     closes = data.cached_closes(tuple(symbols), "1mo", "1d", demo).frame
     components.watchlist_rail(rail.rail_rows(results, closes, selected), _open_from_rail)
 
@@ -504,7 +524,7 @@ def watchlist_frame(results: Sequence[data.QuoteResult], closes: pd.DataFrame) -
             rows.append(
                 {
                     "Symbol": result.symbol,
-                    "Name": result.error or "Unavailable",
+                    "Name": rail.UNAVAILABLE,
                     "Price": fmt.PLACEHOLDER,
                     "Change": None,
                     "52W position": None,
@@ -545,9 +565,22 @@ def _percent(fraction: float | None) -> float | None:
     return None if fraction is None else fraction * 100.0
 
 
+def watchlist_grid(frame: pd.DataFrame) -> pd.DataFrame:
+    """The grid's copy of the watchlist: P/E as text, because the grid prints a
+    missing number as a faded "None" (indices have no P/E)."""
+    grid = frame.copy()
+    grid["P/E"] = [fmt.format_ratio(v, 1) for v in frame["P/E"]]
+    return grid
+
+
 def table_height(rows: int, row_height: int = 44) -> int:
     """Pixel height that shows every row of a dataframe without inner scrolling."""
     return (max(rows, 1) + 1) * row_height + 2
+
+
+EMPTY_WATCHLIST = messages.Copy(
+    "Your watchlist is empty.", "Add a ticker below, for example AAPL, LT.NS or ^GSPC."
+)
 
 
 def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
@@ -571,26 +604,28 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
         persist_state="page",
     )
     symbols, rejected = data.parse_symbol_list(raw, config.MAX_WATCHLIST)
-    if rejected:
-        st.warning(f"Ignored invalid symbols: {', '.join(rejected)}")
     if not symbols:
-        table_slot.info("Your watchlist is empty. Add a ticker below.")
+        with table_slot:
+            components.error_panel(EMPTY_WATCHLIST, height=height)
         return
 
     results = data.cached_quotes(tuple(symbols), demo)
+    failure = messages.batch_from_results(results)
+    if failure is not None:
+        with table_slot:
+            components.error_panel(failure, height=height)
+        return
+    loaded = [r for r in results if r.quote is not None]
     closes = data.cached_closes(tuple(symbols), "1mo", "1d", demo).frame
-    table = watchlist_frame(results, closes)
+    table = watchlist_frame(loaded, closes)
     st.session_state["_watchlist_symbols"] = table["Symbol"].tolist()
 
     def colour(value: object) -> str:
-        if isinstance(value, float) and not math.isnan(value) and value != 0:
+        if isinstance(value, float) and not math.isnan(value) and not fmt.rounds_to_zero(value, 2):
             return f"color: {theme.up if value > 0 else theme.down}"
         return ""
 
-    # Missing values read "—" (the grid would otherwise print "None").
-    styled = table.style.map(colour, subset=["Change"]).format(
-        na_rep=fmt.PLACEHOLDER, precision=1, subset=["P/E"]
-    )
+    styled = watchlist_grid(table).style.map(colour, subset=["Change"])
     table_slot.dataframe(
         styled,
         hide_index=True,
@@ -615,7 +650,14 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
                 color="gray",
                 width=110,
             ),
-            "P/E": st.column_config.NumberColumn("P/E (TTM)", format="%.1f"),
+            "P/E": st.column_config.TextColumn("P/E (TTM)", alignment="right"),
         },
     )
+    failed = {r.symbol: r.error or "" for r in results if r.quote is None}
+    if failed:
+        components.fineprint(
+            messages.not_shown(failed, frozenset(r.symbol for r in results if r.transient))
+        )
+    if rejected:
+        components.fineprint(f"Ignored, not ticker symbols: {', '.join(rejected)}.")
     components.csv_download(table.drop(columns=["1M trend"]), "watchlist.csv", key="dl_watch")

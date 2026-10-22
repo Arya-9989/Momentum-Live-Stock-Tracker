@@ -51,6 +51,10 @@ class NoDataError(DataError):
     """The source answered but has no data (unknown, delisted, or empty window)."""
 
 
+class EmptyRangeError(NoDataError):
+    """The symbol answered, but with no bars in the requested window."""
+
+
 class DataSourceError(DataError):
     """The source could not be reached or refused the request (network, rate limit).
 
@@ -404,7 +408,7 @@ def load_history(
             f"No price data for '{symbol}' in this range. The symbol may be invalid or "
             "delisted, or the market has not traded in this window."
         )
-        raise NoDataError(msg)
+        raise EmptyRangeError(msg)
     return frame
 
 

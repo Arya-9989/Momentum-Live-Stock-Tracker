@@ -282,13 +282,15 @@
 }
 .mm-muted { color: var(--mm-secondary); font-size: 15px; }
 
-/* A load error takes the quote header's place, set at headline size. */
-.st-key-quote_slot [data-testid="stAlertContainer"] {
-  margin-top: 1.25rem; padding: 0; background: transparent; border: 0;
+/* A load error takes the quote header's place: the headline says what happened,
+   one line underneath says what to do. Same fixed height as the quote. */
+[data-testid="stApp"] .mm-quote-error h1.mm-name {
+  white-space: normal; text-wrap: balance;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
 }
-.st-key-quote_slot [data-testid="stAlertContainer"] p {
-  font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.012em;
-  text-wrap: balance;
+.mm-error-detail {
+  margin-top: 8px !important; max-width: 62ch;
+  font-size: 17px; line-height: 24px; color: var(--mm-secondary); text-wrap: pretty;
 }
 
 /* Empty / error panel that takes the chart's place */
@@ -299,6 +301,14 @@
 }
 .mm-empty strong { color: var(--mm-ink); font-size: 21px; line-height: 25px; font-weight: 600; }
 .mm-empty span { max-width: 44ch; font-size: 15px; line-height: 22px; text-wrap: pretty; }
+.mm-empty-compact { padding: 1.5rem; }
+.mm-empty-compact strong { font-size: 17px; line-height: 22px; }
+.mm-empty-compact span { font-size: 14px; line-height: 20px; }
+/* In the rail the message replaces a list, so it reads as quiet text, not a card. */
+.st-key-rail .mm-empty {
+  justify-content: flex-start; align-items: flex-start; text-align: left;
+  padding: 16px 12px; background: transparent; border-radius: 0;
+}
 
 /* ---------------------------------------------------------------- notices */
 [data-testid="stAlertContainer"] {

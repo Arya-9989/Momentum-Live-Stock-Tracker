@@ -103,9 +103,25 @@ def test_watchlist_frame_mixes_quotes_and_errors() -> None:
     assert apple["Change"] == pytest.approx(2 / 188 * 100)
     assert apple["52W position"] == pytest.approx(80.0)
     assert apple["1M trend"] == [1.0, 3.0]
-    assert nope["Name"] == "No data found"
+    assert nope["Name"] == "Quote unavailable"
     assert math.isnan(nope["P/E"])
-    assert frame["P/E"].dtype == float  # numeric so the grid never shows "None"
+    assert frame["P/E"].dtype == float  # numeric for the CSV export
+
+
+def test_watchlist_grid_never_shows_none() -> None:
+    # The grid prints a missing number as a faded "None"; indices have no P/E.
+    index = Quote(symbol="^GSPC", name="S&P 500", currency="USD", quote_type="INDEX", price=1.0)
+    results = [QuoteResult("AAPL", quote=EQUITY), QuoteResult("^GSPC", quote=index)]
+    grid = views.watchlist_grid(watchlist_frame(results, pd.DataFrame()))
+    assert grid["P/E"].tolist() == ["29.6", "—"]
+
+
+def test_bars_per_year_follows_the_calendar_the_series_trades() -> None:
+    weekdays = pd.Series(1.0, index=pd.bdate_range("2024-01-01", periods=20))
+    every_day = pd.Series(1.0, index=pd.date_range("2024-01-01", periods=20))
+    assert views.bars_per_year(weekdays, "1d") == 252
+    assert views.bars_per_year(every_day, "1d") == 365  # crypto, whatever its symbol
+    assert views.bars_per_year(weekdays, "1wk") == 52
 
 
 # --------------------------------------------------------------------------- view helpers

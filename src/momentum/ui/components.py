@@ -19,6 +19,7 @@ import streamlit as st
 from momentum import formatting as fmt
 from momentum.data import Profile, Quote
 from momentum.ui.kpis import Kpi
+from momentum.ui.messages import Copy
 from momentum.ui.rail import RailRow, rail_height, rail_payload
 
 _HERE = Path(__file__).parent
@@ -213,6 +214,20 @@ def notice(text: str, *, kind: str = "info") -> None:
     st.html(f'<p class="mm-notice mm-notice-{escape(kind)}" role="status">{escape(text)}</p>')
 
 
+def error_panel(copy: Copy, *, height: int, compact: bool = False) -> None:
+    """A failed load, at the size of the slot it fills: a title and one next step."""
+    st.html(error_panel_html(copy, height=height, compact=compact))
+
+
+def error_panel_html(copy: Copy, *, height: int, compact: bool = False) -> str:
+    variant = " mm-empty-compact" if compact else ""
+    return (
+        f'<div class="mm-empty{variant}" role="status" style="height:{height}px;'
+        f'box-sizing:border-box"><strong>{escape(copy.title)}</strong>'
+        f"<span>{escape(copy.detail)}</span></div>"
+    )
+
+
 # --------------------------------------------------------------------- quote header
 
 
@@ -281,6 +296,22 @@ def quote_header_html(quote: Quote) -> str:
 
 def quote_header(quote: Quote) -> None:
     st.html(quote_header_html(quote))
+
+
+def error_header_html(symbol: str, copy: Copy) -> str:
+    """The quote header's place when a symbol cannot be shown: what happened, in
+    headline type, and the next step underneath. Same fixed height."""
+    meta = _meta_html(symbol.strip().upper(), []) if symbol.strip() else "&nbsp;"
+    return (
+        f'<header class="mm-quote mm-quote-error" role="alert" style="height:{HEADER_HEIGHT}px">'
+        f'<p class="mm-meta">{meta}</p>'
+        f'<h1 class="mm-name">{escape(copy.title)}</h1>'
+        f'<p class="mm-error-detail">{escape(copy.detail)}</p></header>'
+    )
+
+
+def error_header(symbol: str, copy: Copy) -> None:
+    st.html(error_header_html(symbol, copy))
 
 
 # --------------------------------------------------------------------- KPIs and stats

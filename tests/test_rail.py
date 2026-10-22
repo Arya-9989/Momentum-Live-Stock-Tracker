@@ -75,8 +75,8 @@ def test_rail_rows() -> None:
     assert not apple.selected
     assert (nifty.price, nifty.direction, nifty.selected) == ("24,000.00", "down", True)
     assert nifty.label.endswith("down 0.50% today")
-    assert (nope.name, nope.price, nope.spark) == ("No data found", "—", "")
-    assert nope.label == "NOPE, unavailable"
+    assert (nope.name, nope.price, nope.change, nope.spark) == ("Quote unavailable", "—", "", "")
+    assert nope.label == "NOPE, quote unavailable"
 
 
 def test_payload_is_json_and_height_is_reserved() -> None:

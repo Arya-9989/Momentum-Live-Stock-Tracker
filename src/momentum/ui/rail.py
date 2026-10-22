@@ -20,6 +20,7 @@ from momentum.data import QuoteResult
 Direction = Literal["up", "down", "flat"]
 
 ROW_HEIGHT: Final = 60  # px; >= 44 px touch target, matches rail.css
+UNAVAILABLE: Final = "Quote unavailable"
 SPARK_WIDTH: Final = 56
 SPARK_HEIGHT: Final = 24
 
@@ -84,15 +85,17 @@ def rail_rows(
         quote = result.quote
         trend = closes[result.symbol].dropna().tolist() if result.symbol in closes else []
         if quote is None:
+            # A quiet row: the symbol keeps its place, with no empty badge. The
+            # reason is shown once for the whole rail when every quote fails.
             rows.append(
                 RailRow(
                     symbol=result.symbol,
-                    name=result.error or "Unavailable",
+                    name=UNAVAILABLE,
                     price=fmt.PLACEHOLDER,
-                    change=fmt.PLACEHOLDER,
+                    change="",
                     direction="flat",
                     spark=sparkline_path(trend),
-                    label=f"{result.symbol}, unavailable",
+                    label=f"{result.symbol}, quote unavailable",
                     selected=result.symbol == selected,
                 )
             )
