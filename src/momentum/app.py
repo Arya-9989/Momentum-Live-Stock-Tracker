@@ -112,12 +112,16 @@ def main() -> None:
     components.inject_styles()
     theme = get_theme(st.context.theme.type)
 
+    # Fixed height, like every other row above the fold: if the search field's
+    # code fails to load, its error card must not push the page down.
     with st.container(
         key="topbar",
         horizontal=True,
         horizontal_alignment="distribute",
         vertical_alignment="center",
         gap="small",
+        height=components.TOPBAR_HEIGHT,
+        border=False,
     ):
         components.wordmark()
         raw_symbol = st.text_input(

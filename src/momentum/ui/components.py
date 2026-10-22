@@ -133,18 +133,28 @@ def chart_skeleton(height: int) -> None:
 
 # Fixed slot heights (px). Streamlit loads each element type lazily and shows a
 # 40 px placeholder meanwhile, so every slot above the fold is a fixed-height
-# container: whatever loads first, nothing around it moves.
+# container: whatever loads first, nothing around it moves. That includes the
+# top bar: if the search field's code fails to load, Streamlit draws a tall error
+# card in its place, which used to push the whole page down (a 0.137 CLS).
+TOPBAR_HEIGHT = 48
 HEADER_HEIGHT = 176
 TOOLBAR_HEIGHT = 48
 NOTICE_HEIGHT = 40
 RAIL_HEADER_HEIGHT = 40
 
 
+WORDMARK_TEXT_MIN_WIDTH = 376  # px; below this the name would push the search field to a 2nd row
+
+
 def wordmark() -> None:
-    # Inline geometry: it must match the 40 px search field before styles.css loads.
+    # Inline geometry and its own media rule, so it is right from the first paint
+    # (styles.css can arrive later). On the narrowest phones only the mark shows.
     st.html(
+        "<style>@media (max-width: "
+        f"{WORDMARK_TEXT_MIN_WIDTH - 0.02}px){{.mm-wordmark-text{{display:none}}}}</style>"
         '<div class="mm-wordmark" style="display:flex;align-items:center;gap:8px;height:40px;'
-        f'font-size:17px;font-weight:600">{_LOGO}<span>Momentum</span></div>',
+        f'font-size:17px;font-weight:600">{_LOGO}'
+        '<span class="mm-wordmark-text">Momentum</span></div>',
         width="content",
     )
 
@@ -163,8 +173,8 @@ def demo_notice() -> None:
         st.html(
             f'<p class="mm-demo-notice" role="status" style="height:{NOTICE_HEIGHT}px;'
             f"line-height:{NOTICE_HEIGHT}px;margin:0;white-space:nowrap;overflow:hidden;"
-            'text-overflow:ellipsis"><strong>Demo mode</strong>: synthetic prices and '
-            "fundamentals, not real market data.</p>"
+            'text-overflow:ellipsis"><strong>Demo mode</strong>: synthetic data'
+            '<span class="mm-opt">, not real market quotes</span>.</p>'
         )
 
 
@@ -213,18 +223,30 @@ def _direction_class(change: float | None, decimals: int = 2) -> str:
     return "up" if change > 0 else "down"
 
 
+_SEP = '<span class="mm-sep{}" aria-hidden="true">·</span>'
+
+
+def _meta_html(symbol: str, parts: Sequence[tuple[str | None, bool]]) -> str:
+    """``AAPL · NasdaqGS · Equity · USD``; optional parts (and their dots) step aside
+    on narrow phones so the market-state badge always fits."""
+    html = f'<span class="mm-sym">{escape(symbol)}</span>'
+    for text, optional in parts:
+        if text:
+            opt = " mm-opt" if optional else ""
+            html += _SEP.format(opt) + f'<span class="mm-part{opt}">{escape(text)}</span>'
+    return html
+
+
 def quote_header_html(quote: Quote) -> str:
     """Symbol line, instrument name, the hero price and the day change."""
-    meta = [f'<span class="mm-sym">{escape(quote.symbol)}</span>']
-    meta += [
-        f"<span>{escape(part)}</span>"
-        for part in (
-            quote.exchange,
-            (quote.quote_type or "").replace("CRYPTOCURRENCY", "CRYPTO").title() or None,
-            None if quote.is_index else quote.currency,
-        )
-        if part
-    ]
+    meta = _meta_html(
+        quote.symbol,
+        [
+            (quote.exchange, False),
+            ((quote.quote_type or "").replace("CRYPTOCURRENCY", "CRYPTO").title() or None, True),
+            (None if quote.is_index else quote.currency, True),
+        ],
+    )
     state = MARKET_STATES.get(quote.market_state or "")
     badges = ""
     if state:
@@ -250,8 +272,7 @@ def quote_header_html(quote: Quote) -> str:
     price = fmt.format_price(quote.price, quote.currency, quote.quote_type)
     return (
         f'<header class="mm-quote" style="height:{HEADER_HEIGHT}px">'
-        f'<p class="mm-meta">{'<span class="mm-sep" aria-hidden="true">·</span>'.join(meta)}'
-        f"{badges}</p>"
+        f'<p class="mm-meta">{meta}{badges}</p>'
         f'<h1 class="mm-name" title="{escape(quote.name, quote=True)}">{escape(quote.name)}</h1>'
         f'<p class="mm-price"><span class="mm-num">{escape(price)}</span>{as_of}</p>'
         f"{change_html}</header>"

@@ -74,9 +74,10 @@
 
 /* ---------------------------------------------------------------- top bar */
 /* Paint only: geometry here would land after the first paint and shift the page.
-   The hairline is an absolutely positioned pseudo-element, which takes no space. */
-.st-key-topbar { position: relative; }
-.st-key-topbar::after {
+   The top bar is a fixed-height container (it clips its own overflow), so the
+   hairline hangs off its wrapper as a pseudo-element, which takes no space. */
+[data-testid="stLayoutWrapper"]:has(> .st-key-topbar) { position: relative; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-topbar)::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 1px;
   background: var(--mm-hairline); pointer-events: none;
 }

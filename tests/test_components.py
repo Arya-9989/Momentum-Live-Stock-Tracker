@@ -92,3 +92,23 @@ def test_csv_keeps_full_precision_without_exponents() -> None:
     assert "123456789" in text
     assert "3450000000000" in text
     assert "e+" not in text
+
+
+def test_every_row_above_the_fold_has_a_fixed_height() -> None:
+    """The top bar was the one unbounded row: a failed search-field chunk grew it
+    40 -> 185 px and shifted the page (CLS 0.137). It now has a fixed slot."""
+    import inspect
+
+    from momentum import app
+
+    source = inspect.getsource(app.main)
+    assert "height=components.TOPBAR_HEIGHT" in source
+    assert components.TOPBAR_HEIGHT >= 48  # room for the search field's 2 px focus ring
+
+
+def test_narrow_phones_keep_one_top_bar_row_and_the_state_badge() -> None:
+    markup = components.quote_header_html(QUOTE)
+    # Type and currency (and their dots) are optional, the exchange and state are not.
+    assert markup.count("mm-opt") == 4
+    assert '<span class="mm-part">NasdaqGS</span>' in markup
+    assert "Market open" in markup
