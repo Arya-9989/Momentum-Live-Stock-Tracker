@@ -22,6 +22,8 @@ dependencies = [
     "pandas>=2.2",
     "numpy>=2.0",
     "plotly>=7.1",
+    # The Alpha Vantage provider's HTTP client (and its MockTransport replays recorded responses).
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]

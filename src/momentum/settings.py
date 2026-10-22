@@ -21,6 +21,7 @@ DEFAULT_DATA_DIR: Final = ".momentum"
 DEFAULT_DEVICE_RETENTION_DAYS: Final = 400
 DEFAULT_ALERT_INTERVAL_S: Final = 60
 ALERT_WORKER_MODES: Final = ("auto", "external", "off")
+PROVIDERS: Final = ("yahoo", "alphavantage")
 
 
 class SettingsError(ValueError):
@@ -51,6 +52,9 @@ class Settings:
     alert_interval_s: int = DEFAULT_ALERT_INTERVAL_S
     smtp: SmtpSettings | None = None
     webhook_allow_private: bool = False
+    providers: tuple[str, ...] = ("yahoo",)
+    alphavantage_key: str | None = None
+    alphavantage_daily_budget: int = 25
 
     @property
     def is_postgres(self) -> bool:
@@ -117,7 +121,21 @@ def load(env: Mapping[str, str] | None = None) -> Settings:
         ),
         smtp=_smtp(env),
         webhook_allow_private=is_truthy(env.get("MOMENTUM_WEBHOOK_ALLOW_PRIVATE", "")),
+        providers=_providers(env),
+        alphavantage_key=_optional(env, "ALPHAVANTAGE_API_KEY"),
+        alphavantage_daily_budget=_int(env, "ALPHAVANTAGE_DAILY_BUDGET", 25),
     )
+
+
+def _providers(env: Mapping[str, str]) -> tuple[str, ...]:
+    """``MOMENTUM_PROVIDERS=yahoo,alphavantage``: the order is the fallback order."""
+    raw = env.get("MOMENTUM_PROVIDERS", "").strip().lower() or "yahoo"
+    names = tuple(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
+    unknown = [n for n in names if n not in PROVIDERS]
+    if unknown or not names:
+        msg = f"MOMENTUM_PROVIDERS accepts {', '.join(PROVIDERS)}; got {', '.join(unknown) or raw}"
+        raise SettingsError(msg)
+    return names
 
 
 def _smtp(env: Mapping[str, str]) -> SmtpSettings | None:

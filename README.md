@@ -100,6 +100,13 @@ is an illustration and shows no market data.</sub>
   will differ ([ADR 0003](docs/adr/0003-portfolio-cost-basis.md)).
 - **CSV export** of the visible prices plus indicators, the comparison, the watchlist, and the
   portfolio's holdings and transactions, at full precision.
+- **A second data provider (optional).** With your own Alpha Vantage key, Momentum falls back to
+  Alpha Vantage when Yahoo Finance is down or rate-limiting. It covers history, quotes and
+  fundamentals for US and other covered listings, behind the same `MarketDataProvider`
+  interface, so every view works unchanged. A client-side limiter and a daily budget keep within
+  the free tier, and a provider that rate-limits is skipped for a cool-down. It is off by
+  default; see [Second data provider](#second-data-provider-optional) and
+  [ADR 0004](docs/adr/0004-second-data-provider.md).
 - **Designed failure states.** An unknown symbol, a network outage or a Yahoo rate limit each
   get a short headline and one next step in place of the quote ("Can't reach Yahoo Finance."),
   and Compare, the Watchlist and the rail say it once instead of on every row. Network and
@@ -277,6 +284,9 @@ What remains belongs to the framework, as the bare-app rows show:
 | `MOMENTUM_ALERT_INTERVAL_S` | env var | `60` | Seconds between alert checks (minimum 10) |
 | `MOMENTUM_SMTP_HOST`, `_PORT`, `_FROM`, `_STARTTLS`, `_SSL`, `_USERNAME`, `_PASSWORD` | env vars | unset (email off) | SMTP for email alerts |
 | `MOMENTUM_WEBHOOK_ALLOW_PRIVATE` | env var | `0` | `1` allows `http://` and private addresses for webhooks (local development only) |
+| `MOMENTUM_PROVIDERS` | env var | `yahoo` | Data providers in fallback order, e.g. `yahoo,alphavantage` |
+| `ALPHAVANTAGE_API_KEY` | env var | unset | Your Alpha Vantage key; Alpha Vantage is used only when it is listed and this is set |
+| `ALPHAVANTAGE_DAILY_BUDGET` | env var | `25` | Requests per UTC day before Momentum stops calling Alpha Vantage (the free tier's limit) |
 
 Any `STREAMLIT_*` environment variable (for example `STREAMLIT_SERVER_PORT`) works as usual.
 No API keys or secrets are required.
@@ -298,6 +308,37 @@ MOMENTUM_SECRET_KEY=...            # 32+ characters; the session-cookie secret i
 
 A signed-in list is keyed by the identity provider's issuer and subject, not the email address.
 The design and its trade-offs are in [ADR 0001](docs/adr/0001-watchlist-identity-and-storage.md).
+
+## Second data provider (optional)
+
+Yahoo Finance is the default and needs no key. To fall back to Alpha Vantage when Yahoo fails,
+claim a free key at <https://www.alphavantage.co/support/#api-key> and put this in `.env`
+(or the container's environment):
+
+```bash
+MOMENTUM_PROVIDERS=yahoo,alphavantage
+ALPHAVANTAGE_API_KEY=your-key-here
+# ALPHAVANTAGE_DAILY_BUDGET=25        # raise it if you have a paid plan
+```
+
+- **Order and failover.** Providers are tried in the order listed. A network failure, a rate
+  limit, or a symbol the provider doesn't cover moves on to the next one. "No such symbol" from a
+  provider that covers it stops the chain, so typos don't spend the second provider's quota.
+- **Coverage.** Alpha Vantage covers US listings and the exchanges it documents (London `.L`,
+  Toronto `.TO`/`.V`, XETRA `.DE`, BSE `.BO`, Shanghai `.SS`, Shenzhen `.SZ`). Indices, FX, crypto
+  and NSE (`.NS`) listings keep coming from Yahoo.
+- **Adjustment.** Its free daily prices are not dividend-adjusted, unlike Yahoo's. Bars after the
+  last dividend match to the cent (the tests check this on recorded data); older bars sit above
+  Yahoo's by the dividends paid since.
+- **Rate limits.**
+  - The free tier allows 25 requests a day. Momentum spaces requests by 1.1 s, stops calling once
+    the day's budget is spent, and caches each company overview for a day, so a quote costs one
+    request.
+  - That is enough to keep a handful of symbols alive through a Yahoo outage, not to replace
+    Yahoo.
+- **Tests and the key.** The tests replay responses recorded with Alpha Vantage's public `demo`
+  key (`scripts/record_alphavantage.py`), so CI never calls the live API, and the key never
+  appears in logs or error messages.
 
 ## Alerts
 
@@ -454,15 +495,11 @@ The hero images come from `uv run python scripts/make_hero.py`.
 
 Market data comes from Yahoo Finance through [yfinance](https://github.com/ranaroussi/yfinance), an
 **unofficial**, community-maintained library that is not affiliated with or endorsed by Yahoo.
+If you configure it, [Alpha Vantage](https://www.alphavantage.co/) serves as a fallback under your
+own key and its terms.
 Data may be delayed, incomplete or briefly unavailable, and Yahoo can rate-limit requests. Use is
 subject to Yahoo's terms. This project is for education and personal use. **It is not financial
 advice.**
-
-## Roadmap (future work)
-
-These features are not implemented yet:
-
-- A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.
 
 ## License
 

@@ -4,6 +4,7 @@ altair==6.3.0
     # via streamlit
 anyio==4.15.1
     # via
+    #   httpx
     #   starlette
     #   streamlit
 attrs==26.1.0
@@ -15,6 +16,8 @@ beautifulsoup4==4.15.0
 certifi==2026.10.19
     # via
     #   curl-cffi
+    #   httpcore
+    #   httpx
     #   requests
 cffi==2.1.1
     # via curl-cffi
@@ -27,10 +30,17 @@ click==8.5.0
 curl-cffi==0.16.3
     # via yfinance
 h11==0.16.0
-    # via uvicorn
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via momentum
 idna==3.20
     # via
     #   anyio
+    #   httpx
     #   requests
 itsdangerous==2.2.0
     # via streamlit

@@ -224,11 +224,15 @@ translate_yahoo_error = _translate_yahoo_error  # public for the fundamentals mo
 
 
 def get_provider(demo: bool) -> MarketDataProvider:
+    """Synthetic data in demo mode; otherwise the configured provider or chain
+    (``MOMENTUM_PROVIDERS``, Yahoo Finance by default; see momentum.providers)."""
     if demo:
         from momentum.demo import DemoProvider
 
         return DemoProvider()
-    return YahooProvider()
+    from momentum.providers import live_provider
+
+    return live_provider()
 
 
 # --------------------------------------------------------------------------- parsing
