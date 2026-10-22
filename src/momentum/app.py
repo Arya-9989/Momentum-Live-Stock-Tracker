@@ -64,10 +64,12 @@ def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool)
     count = len(views.watchlist_symbols())
     with rail:
         views.rail_header()
-        slot = st.container(key="rail_slot", height=rail_height(count), border=False).empty()
-        if first_run:
-            with slot:
-                components.rail_skeleton(count)
+        slot = components.slot(
+            "rail_slot",
+            rail_height(count),
+            first_run=first_run,
+            skeleton=lambda: components.rail_skeleton(count),
+        )
         _data_controls()
     with slot:
         views.watchlist_rail(_current_symbol(raw_symbol), demo)

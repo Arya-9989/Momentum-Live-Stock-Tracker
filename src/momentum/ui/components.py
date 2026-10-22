@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 from momentum import formatting as fmt
 from momentum.data import Profile, Quote
@@ -131,6 +132,26 @@ def watchlist_rail(rows: Sequence[RailRow], on_select: Callable[[], None]) -> No
 
 
 # --------------------------------------------------------------------- skeletons
+
+
+def slot(key: str, height: int, *, first_run: bool, skeleton: Callable[[], None]) -> DeltaGenerator:
+    """A fixed-height container that holds one element, replaced on every run.
+
+    Only a session's first run puts an ``st.empty`` placeholder in it (holding the
+    skeleton). Later runs write straight into the container, at the same position,
+    so the previous element stays on screen until its replacement arrives. An
+    ``st.empty`` sent at the start of every run blanked the slot while data loaded,
+    and remounted whatever component was in it.
+    """
+    box = st.container(key=key, height=height, border=False)
+    if not first_run:
+        return box
+    placeholder = box.empty()
+    with placeholder:
+        skeleton()
+    return placeholder
+
+
 # Shown only on a session's first run, at the exact size of what replaces them,
 # so nothing below moves when the data arrives (CLS stays at zero).
 

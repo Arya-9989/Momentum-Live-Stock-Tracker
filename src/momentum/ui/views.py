@@ -188,18 +188,20 @@ def overview(raw_symbol: str, demo: bool, theme: Theme, *, first_run: bool) -> N
     chart slots while data loads; later runs keep the previous render (dimmed by
     Streamlit) until the new one replaces it.
     """
-    header_slot = st.container(
-        key="quote_slot", height=components.HEADER_HEIGHT, border=False
-    ).empty()
-    if first_run:
-        with header_slot:
-            components.header_skeleton()
+    header_slot = components.slot(
+        "quote_slot",
+        components.HEADER_HEIGHT,
+        first_run=first_run,
+        skeleton=components.header_skeleton,
+    )
     range_label = range_control()
     height = expected_chart_height()
-    chart_slot = st.container(key="chart_slot", height=height, border=False).empty()
-    if first_run:
-        with chart_slot:
-            components.chart_skeleton(height)
+    chart_slot = components.slot(
+        "chart_slot",
+        height,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(height),
+    )
     controls = chart_options(range_label)
     footnote = st.empty()
 
@@ -353,10 +355,12 @@ def compare(symbol: str, demo: bool, theme: Theme, *, first_run: bool = False) -
             )
             or "1Y"
         )
-    chart_slot = st.container(key="compare_slot", height=COMPARE_HEIGHT, border=False).empty()
-    if first_run:
-        with chart_slot:
-            components.chart_skeleton(COMPARE_HEIGHT)
+    chart_slot = components.slot(
+        "compare_slot",
+        COMPARE_HEIGHT,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(COMPARE_HEIGHT),
+    )
 
     symbols, rejected = data.parse_symbol_list(raw, config.MAX_COMPARE)
     if not symbols:
@@ -589,10 +593,12 @@ def watchlist(demo: bool, theme: Theme, *, first_run: bool = False) -> None:
     )
     symbols = watchlist_symbols()
     height = table_height(len(symbols))
-    table_slot = st.container(key="watchlist_slot", height=height, border=False).empty()
-    if first_run:
-        with table_slot:
-            components.chart_skeleton(height)
+    table_slot = components.slot(
+        "watchlist_slot",
+        height,
+        first_run=first_run,
+        skeleton=lambda: components.chart_skeleton(height),
+    )
     raw = st.multiselect(
         "Symbols in your watchlist",
         options=list(dict.fromkeys([*config.DEFAULT_WATCHLIST, *config.QUICK_PICKS])),
