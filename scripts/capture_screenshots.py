@@ -57,6 +57,27 @@ def desktop(browser: Browser, scheme: Scheme, height: int) -> Page:
     return ctx.new_page()
 
 
+def crosshair(page: Page, url: str, name: str) -> None:
+    """The chart with MACD switched on and the pointer over it: one crosshair and one
+    readout through every panel."""
+    page.goto(url)
+    wait_for_app(page)
+    page.get_by_role("button", name="Indicators").click()
+    page.get_by_label("MACD (12, 26, 9)").check(force=True)
+    page.keyboard.press("Escape")
+    wait_for_app(page)
+    chart = page.locator(".st-key-chart_slot .js-plotly-plot")
+    chart.scroll_into_view_if_needed()
+    box = chart.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] * 0.62, box["y"] + 140)
+    page.mouse.move(box["x"] + box["width"] * 0.62 + 2, box["y"] + 150)
+    page.wait_for_timeout(800)
+    path = OUT_DIR / f"{name}.png"
+    page.screenshot(path=str(path), clip=box)
+    print(f"saved {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://localhost:8501")
@@ -78,6 +99,10 @@ def main() -> None:
         page = desktop(browser, "light", 1000)
         shoot(page, f"{base}/?ticker=AAPL&range=1Y&view=Compare{demo}", "compare")
         shoot(page, f"{base}/?view=Watchlist{demo}", "watchlist", charts=0, selector=TABLE)
+        page.context.close()
+
+        page = desktop(browser, "light", 1200)
+        crosshair(page, f"{base}/?ticker=AAPL&range=3M{demo}", "crosshair")
         page.context.close()
 
         mobile = browser.new_context(
