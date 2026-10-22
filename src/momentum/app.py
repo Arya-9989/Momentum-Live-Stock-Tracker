@@ -83,7 +83,6 @@ def _data_controls() -> None:
             value=config.demo_mode_enabled(),
             key="demo",
             bind="query-params",
-            help="Use deterministic synthetic data instead of Yahoo Finance (works offline).",
         )
         st.button(
             "Refresh data",
@@ -93,8 +92,9 @@ def _data_controls() -> None:
             on_click=data.clear_caches,
         )
         components.fineprint(
-            "Data from Yahoo Finance via the unofficial yfinance library; it may be "
-            "delayed or incomplete. Not financial advice."
+            "Demo data is synthetic and works offline. Live data comes from Yahoo Finance "
+            "via the unofficial yfinance library and may be delayed or incomplete. "
+            "Not financial advice."
         )
 
 

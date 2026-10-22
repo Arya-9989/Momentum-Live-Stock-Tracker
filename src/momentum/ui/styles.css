@@ -3,12 +3,12 @@
  *
  * Hooks this file relies on (keep in sync when upgrading Streamlit):
  *   data-testid: stApp, stHeader, stMain, stMainBlockContainer, stHorizontalBlock,
- *                stColumn, stVerticalBlock, stElementContainer, stTabs, stTab,
- *                stButtonGroup, stBaseButton-tertiary, stPopoverButton,
+ *                stLayoutWrapper, stColumn, stVerticalBlock, stElementContainer, stTabs,
+ *                stTab, stButtonGroup, stBaseButton-tertiary, stPopoverButton,
  *                stMetric, stMetricLabel, stMetricValue, stMetricDelta,
  *                stAlertContainer, stExpander, stCaptionContainer, stTextInputRootElement,
- *                stMultiSelectTagsContainer (with its [data-tag] chips),
- *                stBidiComponentIsolated (rail host)
+ *                stMultiSelect, stMultiSelectTagsContainer (with its [data-tag] chips),
+ *                stTooltipHoverTarget, stCheckbox, stBidiComponentIsolated (rail host)
  *   .st-key-KEY classes, which Streamlit adds for keyed containers/widgets
  *   (topbar, shell, rail, main, rail_header, data_controls, chart_toolbar, range,
  *   style, chart_options, overlays, compare_range, kpi_row, stats_section,
@@ -352,10 +352,61 @@
   .mm-page-title .mm-subhead { font-size: 15px; line-height: 20px; }
   .mm-ranges, .mm-stats { grid-template-columns: minmax(0, 1fr); }
 }
-/* Touch: segment targets are 44px tall (inside the fixed 48px rows). */
+@media (max-width: 380px) {
+  /* Instrument type and currency step aside so the market-state badge fits. */
+  .mm-meta .mm-opt, .mm-demo-notice .mm-opt { display: none; }
+}
+
+/* ---------------------------------------------------------------- hit areas */
+/* At least 24 px everywhere (WCAG 2.5.8) and 44 px on touch screens. Padding with
+   an equal negative margin grows a target without moving anything around it. */
+[data-testid="stTooltipHoverTarget"] > button { padding: 4px; margin: -4px; }
+/* A chip's remove button grows right and vertically only, so it never covers the
+   chip's own label (and stops short of the next chip). */
+[data-testid="stMultiSelectTagsContainer"] [data-tag] button {
+  padding-block: 9px; margin-block: -9px; padding-right: 13px; margin-right: -9px;
+}
+[data-testid="stMultiSelect"] [role="group"] > button[type="button"] {
+  padding-block: 1px; margin-block: -1px;
+}
+/* The toggle's real target is its whole label; the switch input inside it is
+   visually hidden (clipped to 1 px) and is kept that size. */
+[data-testid="stCheckbox"] label { min-height: 24px; align-items: center; }
+[data-testid="stCheckbox"] input[role="switch"] { width: 1px; height: 1px; }
+/* ...so the focus ring goes on the label, like every other control. */
+[data-testid="stCheckbox"] label:has(input:focus-visible) {
+  outline: 2px solid var(--mm-focus); outline-offset: 2px; border-radius: 6px;
+  background: transparent;
+}
+
+/* Touch: segment targets are 44 x 44 inside the fixed 48 px rows. Ten ranges do
+   not fit a phone at that size, so the track scrolls sideways (the next segment
+   peeks in) and the page helper keeps the selected one in view. */
 @media (pointer: coarse) {
   :is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radiogroup"] { padding: 0 3px; }
   :is(.st-key-range, .st-key-style, .st-key-compare_range) [role="radio"] { min-height: 44px; }
+  :is(.st-key-range, .st-key-compare_range) { min-width: 0; max-width: 100%; }
+  :is(.st-key-range, .st-key-compare_range) [data-testid="stButtonGroup"] { min-width: 0; max-width: 100%; }
+  :is(.st-key-range, .st-key-compare_range) [role="radiogroup"] {
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  :is(.st-key-range, .st-key-compare_range) [role="radiogroup"]::-webkit-scrollbar { display: none; }
+  :is(.st-key-range, .st-key-compare_range) [role="radio"] {
+    flex: 1 0 46px; min-width: 46px; padding-inline: 6px;
+  }
+
+  [data-testid="stTooltipHoverTarget"] > button { padding: 14px; margin: -14px; }
+  [data-testid="stMultiSelect"] [role="group"] > button[type="button"] {
+    padding: 11px 6px; margin: -11px -6px;
+  }
+  [data-testid="stCheckbox"] label { padding-block: 10px; margin-block: -10px; }
+  [data-testid="stMainMenuButton"] { padding: 12px; margin: -8px; }  /* 4 px own padding */
+  /* Streamlit's 40 px buttons, tabs and the search field reach 44 px; the negative
+     margin keeps their 40 px footprint, so nothing moves. */
+  [data-testid="stApp"] :is([role="tab"], [data-testid="stPopoverButton"],
+    [data-testid^="stBaseButton"]) { min-height: 44px; margin-block: -2px; }
+  [data-testid="stTextInputRootElement"] input { min-height: 44px; margin-block: -4px; }
+  .st-key-rail_edit button { min-width: 44px; margin-inline: -10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

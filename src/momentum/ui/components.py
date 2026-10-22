@@ -55,16 +55,23 @@ _RAIL = st.components.v2.component(
     "momentum_watchlist_rail", css=_asset("rail.css"), js=_asset("rail.js")
 )
 
-# Streamlit does not rerun when the viewer switches theme (from the OS or the
-# main menu), but the Plotly figures are drawn per theme on the server. This
-# zero-height watcher notices the switch and asks for one rerun.
+# A zero-height page helper with two jobs:
+# 1. Streamlit does not rerun when the viewer switches theme (from the OS or the
+#    main menu), but the Plotly figures are drawn per theme on the server. It
+#    notices the switch and asks for exactly one rerun (it remembers the scheme
+#    it reported, so a rerun can never trigger another).
+# 2. On touch screens the range controls scroll sideways so every segment is a
+#    44 px target; it keeps the selected segment in view after each render.
 _THEME_WATCH_JS = """
+const RANGES = '.st-key-range [role="radiogroup"], .st-key-compare_range [role="radiogroup"]';
+
 export default function (component) {
   const { setTriggerValue, parentElement } = component;
   const app = (parentElement.host || parentElement).closest('[data-testid="stApp"]');
   const scheme = () => (app ? getComputedStyle(app).colorScheme : "");
   let last = scheme();
   let timer = 0;
+  let frame = 0;
   const check = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
@@ -72,14 +79,37 @@ export default function (component) {
       if (now && now !== last) { last = now; setTriggerValue("changed", now); }
     }, 60);
   };
-  const observer = new MutationObserver(check);
-  observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+  const reveal = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      for (const group of document.querySelectorAll(RANGES)) {
+        const checked = group.querySelector('[role="radio"][aria-checked="true"]');
+        if (!checked || group.scrollWidth <= group.clientWidth) continue;
+        const g = group.getBoundingClientRect();
+        const c = checked.getBoundingClientRect();
+        if (c.left < g.left || c.right > g.right) {
+          group.scrollLeft += c.left + c.width / 2 - (g.left + g.width / 2);
+        }
+      }
+    });
+  };
+  const themeObserver = new MutationObserver(check);
+  themeObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
+  const rangeObserver = new MutationObserver(reveal);
+  if (app) {
+    rangeObserver.observe(app, {
+      subtree: true, childList: true, attributes: true, attributeFilter: ["aria-checked"],
+    });
+  }
   const media = matchMedia("(prefers-color-scheme: dark)");
   media.addEventListener("change", check);
+  reveal();
   return () => {
-    observer.disconnect();
+    themeObserver.disconnect();
+    rangeObserver.disconnect();
     media.removeEventListener("change", check);
     clearTimeout(timer);
+    cancelAnimationFrame(frame);
   };
 }
 """
@@ -395,7 +425,11 @@ def profile_card(profile: Profile, quote: Quote) -> None:
     if profile.website and profile.website.startswith(("https://", "http://")):
         url = escape(profile.website, quote=True)
         host = escape(profile.website.split("://", 1)[1].rstrip("/"))
-        link = f'<a href="{url}" target="_blank" rel="noopener noreferrer">{host}</a>'
+        # 24 px tall from the first paint (WCAG 2.5.8 target size).
+        link = (
+            f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+            f'style="display:inline-block;line-height:24px">{host}</a>'
+        )
     facts_line = " · ".join([*facts, link] if link else facts)
     summary = escape(profile.summary or "")
     st.html(
