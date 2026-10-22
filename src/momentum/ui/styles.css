@@ -360,7 +360,9 @@
 /* ---------------------------------------------------------------- hit areas */
 /* At least 24 px everywhere (WCAG 2.5.8) and 44 px on touch screens. Padding with
    an equal negative margin grows a target without moving anything around it. */
-[data-testid="stTooltipHoverTarget"] > button { padding: 4px; margin: -4px; }
+/* Help icons only: the grid's toolbar buttons share the tooltip wrapper but sit
+   side by side, so growing them would make them overlap. */
+[data-testid="stTooltipIcon"] [data-testid="stTooltipHoverTarget"] > button { padding: 4px; margin: -4px; }
 /* A chip's remove button grows right and vertically only, so it never covers the
    chip's own label (and stops short of the next chip). */
 [data-testid="stMultiSelectTagsContainer"] [data-tag] button {
@@ -395,7 +397,9 @@
     flex: 1 0 46px; min-width: 46px; padding-inline: 6px;
   }
 
-  [data-testid="stTooltipHoverTarget"] > button { padding: 14px; margin: -14px; }
+  [data-testid="stTooltipIcon"] [data-testid="stTooltipHoverTarget"] > button {
+    padding: 14px; margin: -14px;
+  }
   [data-testid="stMultiSelect"] [role="group"] > button[type="button"] {
     padding: 11px 6px; margin: -11px -6px;
   }
@@ -404,7 +408,9 @@
   /* Streamlit's 40 px buttons, tabs and the search field reach 44 px; the negative
      margin keeps their 40 px footprint, so nothing moves. */
   [data-testid="stApp"] :is([role="tab"], [data-testid="stPopoverButton"],
-    [data-testid^="stBaseButton"]) { min-height: 44px; margin-block: -2px; }
+    [data-testid^="stBaseButton"]:not([data-testid="stBaseButton-elementToolbar"])) {
+    min-height: 44px; margin-block: -2px;
+  }
   [data-testid="stTextInputRootElement"] input { min-height: 44px; margin-block: -4px; }
   .st-key-rail_edit button { min-width: 44px; margin-inline: -10px; }
 }
