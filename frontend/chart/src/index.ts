@@ -164,8 +164,14 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
       panes: { separatorColor: theme.grid, separatorHoverColor: theme.axis, enableResize: false },
     },
     grid: { vertLines: { visible: false }, horzLines: { color: theme.grid } },
-    // A minimum width absorbs the labels growing when the web font arrives.
-    rightPriceScale: { borderVisible: false, alignLabels: true, minimumWidth: 80 },
+    // A minimum width absorbs the labels growing when the web font arrives. Labels that would be
+    // cut at a pane's edge are skipped, so one pane's axis never overprints the next pane's.
+    rightPriceScale: {
+      borderVisible: false,
+      alignLabels: true,
+      minimumWidth: 80,
+      entireTextOnly: true,
+    },
     timeScale: {
       borderVisible: false,
       timeVisible: payload.intraday,
