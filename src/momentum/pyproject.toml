@@ -1,0 +1,11 @@
+# Streamlit component manifest (not a build file: the project is built from the
+# repository's pyproject.toml). Streamlit finds this beside the installed package
+# and serves the chart's built assets from asset_dir as cacheable files, instead
+# of sending the bundle with every script run.
+[project]
+name = "momentum"
+version = "1.0.0"
+
+[[tool.streamlit.component.components]]
+name = "price_chart"
+asset_dir = "ui/chart"

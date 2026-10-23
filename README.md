@@ -12,8 +12,9 @@
 A fast, mobile-friendly Streamlit dashboard for global stocks, indices, ETFs, FX and crypto.
 Type any Yahoo Finance symbol (`AAPL`, `LT.NS`, `VOD.L`, `^GSPC`, `BTC-USD`) to get an
 area-line or candlestick chart with technical indicators, key statistics, a company profile,
-multi-symbol comparison and a watchlist. All of it is backed by a typed, tested data layer that
-degrades gracefully when Yahoo misbehaves.
+fundamentals, multi-symbol comparison, a saved watchlist, a portfolio with FIFO profit and loss,
+and price and indicator alerts. All of it is backed by a typed, tested data layer that degrades
+gracefully when Yahoo misbehaves.
 
 ![Overview, light theme: price header, area chart with SMA overlays, and the watchlist rail](docs/screenshots/overview-light.png)
 
@@ -30,9 +31,16 @@ degrades gracefully when Yahoo misbehaves.
 
 ![One crosshair through the price, volume, RSI and MACD panels, with a readout listing every series](docs/screenshots/crosshair.png)
 
-<sub>Screenshots show live Yahoo Finance data (the 22 Oct 2026 US session), captured from the
-Docker image with <code>scripts/capture_screenshots.py</code> on 23 Oct 2026. The hero image above
-is an illustration and shows no market data.</sub>
+| Fundamentals | Portfolio |
+| --- | --- |
+| ![Fundamentals: revenue, margins and dividend tiles above the annual income statement](docs/screenshots/fundamentals.png) | ![Portfolio: value and profit and loss per currency above the holdings table](docs/screenshots/portfolio.png) |
+
+![Alerts: the new-alert form and four saved alerts on price, RSI, a moving-average cross and day change](docs/screenshots/alerts.png)
+
+<sub>Screenshots show live Yahoo Finance data (the 22 Oct 2026 US session), captured with
+<code>scripts/capture_screenshots.py</code> from <code>serve.py</code> on 23 Oct 2026. The portfolio
+and alerts belong to a sample viewer created for the captures. The hero image above is an
+illustration and shows no market data.</sub>
 
 ## Features
 
@@ -47,8 +55,12 @@ is an illustration and shows no market data.</sub>
   1-minute bars only for 1D). The line is green or red by the move over the range; on 1D it is
   measured against the previous close, which is drawn as a dotted reference line. One crosshair
   runs through the price, volume, RSI and MACD panels, and one readout lists every series at the
-  hovered bar, value first. Weekends, exchange holidays and overnight gaps are removed from the
-  axis, and times are shown in the exchange's local time.
+  hovered bar, value first. Weekends, exchange holidays and overnight gaps take no space on the
+  axis, and times are shown in the exchange's local time. Wheel or pinch zooms the time axis, and a
+  double-click fits it again. Click the prices and the chart offers **"Set an alert at $X"**,
+  which opens the Alerts tab with that level filled in. The charts are
+  [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) (Apache-2.0),
+  built into a Streamlit component ([ADR 0005](docs/adr/0005-lightweight-charts.md)).
 - **Technical indicators:** SMA 20/50/200, EMA 12/26, Bollinger Bands (20, 2), RSI (14, Wilder)
   and MACD (12, 26, 9), computed as StockCharts defines them (EMAs seeded with an SMA). Daily,
   weekly and monthly charts fetch at least 250 bars before the visible range, so even SMA 200 is
@@ -59,6 +71,13 @@ is an illustration and shows no market data.</sub>
   instead.
 - **Key statistics** with day and 52-week range bars, plus a company profile (sector, industry,
   employees, website, business summary).
+- **Fundamentals** for the symbol in view: revenue, gross and operating income, net income and
+  diluted EPS, plus total assets, liabilities, equity, cash and debt, for the last four years or
+  five quarters. Gross and net margins are derived, along with the dividend history, trailing
+  twelve-month dividend and yield. Figures are shown in the currency the company *reports* in,
+  which can differ from the one it trades in (TSMC reports in TWD, Vodafone in EUR), and the page
+  says which. Lines a company doesn't report read "—", and indices, FX and crypto get one sentence
+  instead of an empty table. Statements are cached for a day.
 - **Compare** up to six symbols as cumulative % return, each rebased to 0% at its first bar in
   the range, with up to four lines labelled at their end, and return, volatility and
   max-drawdown columns.
@@ -67,8 +86,50 @@ is an illustration and shows no market data.</sub>
   rows) to open it. The
   **Watchlist** tab holds up to twelve symbols in a full table with 52-week position and range,
   market cap and P/E; select a row there to open that symbol.
-- **CSV export** of the visible prices plus indicators, the comparison and the watchlist, at full
-  precision.
+- **A saved watchlist.** Edits are saved as you make them and come back on your next visit,
+  with no account needed: `serve.py` gives each browser a signed, HttpOnly device cookie, and the
+  list is stored in SQLite (or Postgres). With OIDC sign-in configured, the list follows the
+  account instead, across devices. Symbols are validated before they are saved, a symbol the data
+  source does not know is refused with a reason, a list holds at most twelve, and two tabs editing
+  at once never undo each other. Under plain `streamlit run` the list is kept for the session, and
+  the Watchlist tab says so.
+- **Price and indicator alerts.** Price crosses above or below a level, day change beyond ±x%,
+  RSI (14) crossing a level, and SMA 20/50 or 50/200 crossovers. A background loop checks them
+  every minute, even with the page closed. Each alert fires once per cross, and re-arms only after
+  the value moves back past a hysteresis band, with a cooldown on top, so a price wobbling around
+  the level does not cause an alert storm. Notifications appear in the app (a toast on any open
+  page, plus a list in the Alerts tab). Optionally they also go by email, to an identity provider's
+  verified address only, or to a webhook signed with HMAC-SHA256. See
+  [ADR 0002](docs/adr/0002-alerts.md) and [Alerts](#alerts).
+- **Portfolio.** Record buys, sells and splits (fractional shares too) and see each holding's
+  shares, average cost, value, day change, and unrealized and realized P&L, with the portfolio's
+  value as the headline. Cost basis is **first in, first out** (FIFO), with fees counted in. A
+  back-dated buy re-matches later sales, and a sale or delete that would overdraw a holding is
+  refused. Every figure stays in the instrument's own currency (London prices are entered in pence
+  and valued in pounds), and totals are per currency. They can be converted at today's rate on
+  request, labelled as such. Arithmetic is exact `Decimal`. FIFO is what US brokers default to and
+  what Indian rules apply; UK pooling and Canadian ACB use average cost, so realized figures there
+  will differ ([ADR 0003](docs/adr/0003-portfolio-cost-basis.md)).
+- **Your data.** Anyone with saved data finds *Your data* under the watchlist. It offers a JSON
+  download of everything Momentum keeps for them: watchlist, alerts, delivery settings,
+  notifications and portfolio. Webhook secrets are left out. It also offers a confirmed **delete**
+  that erases all of it in one transaction. Deleting selected portfolio transactions also asks
+  first.
+- **Operations.** `/readyz` answers 200 only when the database is reachable and migrated, and the
+  alert loop is running when it should be; `/_stcore/health` still says the process is up.
+  Sensitive actions emit one JSON audit line each on stderr (`momentum.audit`): alerts created or
+  deleted, webhook changes (host only), test deliveries, data exported or deleted, and
+  transactions deleted. Owners appear as pseudonymous references, never as ids, addresses or
+  secrets.
+- **CSV export** of the visible prices plus indicators, the comparison, the watchlist, and the
+  portfolio's holdings and transactions, at full precision.
+- **A second data provider (optional).** With your own Alpha Vantage key, Momentum falls back to
+  Alpha Vantage when Yahoo Finance is down or rate-limiting. It covers history, quotes and
+  fundamentals for US and other covered listings, behind the same `MarketDataProvider`
+  interface, so every view works unchanged. A client-side limiter and a daily budget keep within
+  the free tier, and a provider that rate-limits is skipped for a cool-down. It is off by
+  default; see [Second data provider](#second-data-provider-optional) and
+  [ADR 0004](docs/adr/0004-second-data-provider.md).
 - **Designed failure states.** An unknown symbol, a network outage or a Yahoo rate limit each
   get a short headline and one next step in place of the quote ("Can't reach Yahoo Finance."),
   and Compare, the Watchlist and the rail say it once instead of on every row. Network and
@@ -100,12 +161,11 @@ separation on both surfaces, that leaves out the market green and red.
   only the characters of the price, day change and KPI figures that changed roll (up when the
   value rose, down when it fell), and each ends on exactly the text a static render shows; there
   is no count through made-up numbers. The watchlist's selection slides to the row you pick as
-  you click it. A newly drawn chart keeps its axes still while its series sweep in along the time
-  axis. Only transform, opacity and clip-path animate. With `prefers-reduced-motion` the figures
-  and the selection change at once, and the chart appears without the sweep. Plotly's own
-  `layout.transition` cannot work here: `st.plotly_chart` puts the figure into the element's
-  id, so every new figure mounts a fresh plot (`Plotly.newPlot`) and never reaches the
-  `Plotly.react` path that animates.
+  you click it. When the chart shows something new (a symbol, range, interval or style), its axes
+  stay still while the series sweep in along the time axis: a curtain over the plot area scales
+  away, so only a transform moves. Only transform, opacity and clip-path animate. With
+  `prefers-reduced-motion` the figures and the selection change at once, and the chart appears
+  without the sweep.
 - **Accessibility:** one 2px focus ring everywhere. Every target is at least 24 px (WCAG 2.5.8);
   on touch screens the Overview controls are 44 px or more (the range control scrolls sideways
   rather than shrink its segments), while Streamlit's multiselect chips, the data grid's toolbar
@@ -127,7 +187,8 @@ flowchart LR
     views --> components[ui.components<br/>HTML-escaped widgets, rail component]
     views --> rail[ui.rail<br/>pure watchlist-rail model]
     charts --> theme[momentum.theme<br/>light + dark tokens]
-    views --> charts[momentum.charts<br/>Plotly figure builders]
+    views --> charts[momentum.charts<br/>chart payloads, pure]
+    views --> chartc[ui.chart_component<br/>Lightweight Charts component<br/>built from frontend/chart]
     views --> indicators[momentum.indicators<br/>SMA, EMA, RSI, MACD, BB]
     views --> cache
     subgraph data [momentum.data]
@@ -158,6 +219,9 @@ docker run --rm -p 8501:8501 momentum
 docker run --rm -p 8501:8501 -e MOMENTUM_DEMO=1 momentum
 ```
 
+To keep saved watchlists across container replacements, mount a volume on `/data`:
+`docker run --rm -p 8501:8501 -v momentum-data:/data momentum`.
+
 Open <http://localhost:8501>. The image is multi-stage, runs as a non-root user, has a
 `HEALTHCHECK` on Streamlit's `/_stcore/health` endpoint, and serves the app through `serve.py`
 (see [Performance](#performance)).
@@ -183,45 +247,46 @@ uv run streamlit run serve.py           # as in production: gzip, robots.txt, he
 
 ## Performance
 
-Lighthouse 13.5 scores for the Docker image on a local machine (median of five runs, default
-simulated throttling, desktop and mobile presets), next to a bare `st.write("hi")` app in the
-same image:
+The charts used to be Plotly; they are now TradingView Lightweight Charts
+([ADR 0005](docs/adr/0005-lightweight-charts.md)). Lighthouse 13.5 measured both Docker images on
+23 Oct 2026, in demo mode (identical data), with default simulated throttling. The machine was
+shared with other workloads, so runs were **interleaved in pairs** (Plotly image, then
+Lightweight Charts image): five pairs on mobile, three on desktop. Medians are shown:
 
-| Page | Performance (desktop / mobile) | Accessibility | Best practices | SEO |
-| --- | --- | --- | --- | --- |
-| Bare Streamlit, plain `streamlit run` | 73 / 55 | 100 | 100 | 82 |
-| Bare Streamlit through `serve.py` | 95 / 67 | 100 | 100 | 100 |
-| Overview | 88 / 42 | 100 | 100 | 100 |
-| Compare | 87 / 42 | 100 | 100 | 100 |
-| Watchlist | 94 / 65 | 100 | 100 | 100 |
+| Page | Performance, desktop | Performance, mobile | Blocking time, mobile | Page weight | Worst CLS |
+| --- | --- | --- | --- | --- | --- |
+| Overview | 86 → **91** | 42 → **62** | 910 ms → 0 ms | 2,283 → 1,309 KiB | 0.005 → 0.014 |
+| Compare | 87 → **94** | 42 → **65** | 1,071 ms → 71 ms | 2,820 → 1,848 KiB | 0.003 → 0.005 |
+| Bare `st.write("hi")` through `serve.py`, same image | 95 | 67 | 0 ms | | |
 
-Before `serve.py` the three views scored 60 / 32, 60 / 30 and 71 / 53, with SEO 82.
+Mobile scores per run: Overview 39–44 → 62–64 and Compare 41–43 → 61–66. On desktop, Overview
+went from 74–87 to 90–91 and Compare from 84–88 to 92–94.
 
-The motion described under Design costs no score: with the image before and after it measured
-side by side (runs interleaved, median of five, 23 Oct 2026), every view stays within one point
-on desktop and mobile, the Overview's largest contentful paint is still the hero price, and the
-median CLS is at most 0.005.
+- **What changed.** Plotly's chunk is gone: 4.6 MB raw, 1.1 MB compressed, plus a 200–260 ms
+  task to parse it and draw. The chart bundle is 183 KB raw and 60 KB gzipped, served as a
+  cacheable file from the package's asset directory. Compare is now within two points of the bare
+  app on mobile.
+- **What did not.** On both images the Overview's largest contentful paint is the hero price, not
+  the chart. On the mobile profile it paints at about 7.7 s either way, after Streamlit's own
+  5.3 s to first paint, so the chart library does not move it. Mobile performance therefore stays
+  under 90. Even the bare app stops at 67: nothing paints until Streamlit's entry bundle has run
+  and its websocket session has started (slow 4G with a 4x CPU slowdown).
+- **Layout shift.** The worst single run across all pairs is 0.014, well under the 0.05 bar. The
+  chart's figure reserves its size inline, before its stylesheet loads.
+
+Before `serve.py` existed, the three views scored 60 / 32, 60 / 30 and 71 / 53 (desktop /
+mobile), with SEO 82. A bare app under plain `streamlit run` scores 73 / 55.
 
 `serve.py` runs the app through `st.App` with `momentum.server` in front of it:
 
 - **Compression.** Streamlit serves its frontend bundle uncompressed. The image build writes a
   brotli copy of every asset (20.9 MB to 5.1 MB), served to browsers that accept it. Other
-  browsers get gzip, compressed once per process and cached. Plotly's chunk goes from 4.6 MB to
-  1.1 MB.
+  browsers get gzip, compressed once per process and cached.
 - **Document.** It sets a real title and a meta description, drops a preload of a font the theme
   never uses (166 KB), and adds one critical CSS rule. That rule removes the shift as
   Streamlit's initial narrow shell turns wide (desktop CLS 0.02–0.047 down to at most 0.003).
-- **robots.txt.** Streamlit answers `/robots.txt` with its HTML page; `serve.py` returns a real
-  one.
-
-What remains belongs to the framework, as the bare-app rows show:
-
-- Streamlit renders entirely in the browser, so nothing paints until its entry bundle has run and
-  the websocket session has started. On Lighthouse's mobile profile (slow 4G, 4x CPU slowdown)
-  that takes about 5.3 s even for the bare app, which caps it at 67.
-- On Overview and Compare almost all of the remaining blocking time is one 200–260 ms task in
-  Plotly's chunk, which loads and draws the chart. The Watchlist has no Plotly chart and scores
-  within two points of the bare app.
+- **robots.txt and /readyz.** Streamlit answers `/robots.txt` with its HTML page; `serve.py` returns a
+  real one. `/readyz` reports whether the store is migrated and the alert worker is running.
 
 ## Configuration
 
@@ -232,9 +297,125 @@ What remains belongs to the framework, as the bare-app rows show:
 | `?ticker=`, `?range=`, `?view=` | URL | `AAPL`, `6M`, `Overview` | Deep links |
 | Theme, server options | `.streamlit/config.toml` | | Light/dark palettes, Inter, headless server |
 | Cache TTLs, defaults | `src/momentum/config.py` | quotes 60 s, intraday 60 s, daily 15 min, profile 24 h | |
+| `MOMENTUM_DATA_DIR` | env var | `./.momentum` (`/data` in the image) | SQLite database and the generated signing key |
+| `MOMENTUM_DATABASE_URL` | env var | SQLite in the data directory | `postgresql://user:pass@host/db` to use Postgres (`uv sync --extra postgres`; the image includes it) |
+| `MOMENTUM_SECRET_KEY` | env var | generated into `secret.key` | 32+ characters; signs device cookies. Set it when running several replicas |
+| `MOMENTUM_SECRET_KEY_PREVIOUS` | env var | unset | The old key during a rotation; its cookies are accepted and re-signed |
+| `MOMENTUM_COOKIE_SECURE` | env var | `auto` (Secure on HTTPS) | `1` behind a TLS-terminating proxy |
+| `MOMENTUM_DEVICE_RETENTION_DAYS` | env var | `400` | Anonymous watchlists not seen for this long are deleted |
+| `MOMENTUM_OIDC_*` | env var | unset (sign-in off) | OIDC sign-in, see [Sign-in](#sign-in-optional) |
+| `MOMENTUM_ALERT_WORKER` | env var | `auto` | `auto` runs the alert loop in the app process; `external` leaves it to `python -m momentum.alerts run`; `off` disables it |
+| `MOMENTUM_ALERT_INTERVAL_S` | env var | `60` | Seconds between alert checks (minimum 10) |
+| `MOMENTUM_SMTP_HOST`, `_PORT`, `_FROM`, `_STARTTLS`, `_SSL`, `_USERNAME`, `_PASSWORD` | env vars | unset (email off) | SMTP for email alerts |
+| `MOMENTUM_WEBHOOK_ALLOW_PRIVATE` | env var | `0` | `1` allows `http://` and private addresses for webhooks (local development only) |
+| `MOMENTUM_PROVIDERS` | env var | `yahoo` | Data providers in fallback order, e.g. `yahoo,alphavantage` |
+| `ALPHAVANTAGE_API_KEY` | env var | unset | Your Alpha Vantage key; Alpha Vantage is used only when it is listed and this is set |
+| `ALPHAVANTAGE_DAILY_BUDGET` | env var | `25` | Requests per UTC day before Momentum stops calling Alpha Vantage (the free tier's limit) |
 
 Any `STREAMLIT_*` environment variable (for example `STREAMLIT_SERVER_PORT`) works as usual.
 No API keys or secrets are required.
+
+### Sign-in (optional)
+
+Without sign-in, a watchlist belongs to a browser. To let people keep it across devices, configure
+any OpenID Connect provider for `st.login`, either in `.streamlit/secrets.toml` (an `[auth]`
+table, as in the [Streamlit docs](https://docs.streamlit.io/develop/api-reference/user/st.login))
+or, for containers, with environment variables that `serve.py` turns into the same settings:
+
+```bash
+MOMENTUM_OIDC_SERVER_METADATA_URL=https://idp.example.com/realms/momentum/.well-known/openid-configuration
+MOMENTUM_OIDC_CLIENT_ID=momentum
+MOMENTUM_OIDC_CLIENT_SECRET=...
+MOMENTUM_OIDC_REDIRECT_URI=https://momentum.example.com/oauth2callback
+MOMENTUM_SECRET_KEY=...            # 32+ characters; the session-cookie secret is derived from it
+```
+
+A signed-in list is keyed by the identity provider's issuer and subject, not the email address.
+The design and its trade-offs are in [ADR 0001](docs/adr/0001-watchlist-identity-and-storage.md).
+
+## Second data provider (optional)
+
+Yahoo Finance is the default and needs no key. To fall back to Alpha Vantage when Yahoo fails,
+claim a free key at <https://www.alphavantage.co/support/#api-key> and put this in `.env`
+(or the container's environment):
+
+```bash
+MOMENTUM_PROVIDERS=yahoo,alphavantage
+ALPHAVANTAGE_API_KEY=your-key-here
+# ALPHAVANTAGE_DAILY_BUDGET=25        # raise it if you have a paid plan
+```
+
+- **Order and failover.** Providers are tried in the order listed. A network failure, a rate
+  limit, or a symbol the provider doesn't cover moves on to the next one. "No such symbol" from a
+  provider that covers it stops the chain, so typos don't spend the second provider's quota.
+- **Coverage.** Alpha Vantage covers US listings and the exchanges it documents (London `.L`,
+  Toronto `.TO`/`.V`, XETRA `.DE`, BSE `.BO`, Shanghai `.SS`, Shenzhen `.SZ`). Indices, FX, crypto
+  and NSE (`.NS`) listings keep coming from Yahoo.
+- **Adjustment.** Its free daily prices are not dividend-adjusted, unlike Yahoo's. Bars after the
+  last dividend match to the cent (the tests check this on recorded data); older bars sit above
+  Yahoo's by the dividends paid since.
+- **Rate limits.**
+  - The free tier allows 25 requests a day. Momentum spaces requests by 1.1 s, stops calling once
+    the day's budget is spent, and caches each company overview for a day, so a quote costs one
+    request.
+  - That is enough to keep a handful of symbols alive through a Yahoo outage, not to replace
+    Yahoo.
+- **Tests and the key.** The tests replay responses recorded with Alpha Vantage's public `demo`
+  key (`scripts/record_alphavantage.py`), so CI never calls the live API, and the key never
+  appears in logs or error messages.
+
+## Alerts
+
+Alerts live in the **Alerts** tab and need a saved identity (a device cookie or a sign-in, as for
+the watchlist). The loop runs inside the app by default. To run it as its own process instead:
+
+```bash
+MOMENTUM_ALERT_WORKER=external uv run streamlit run serve.py   # the app, without the loop
+uv run python -m momentum.alerts run                           # the loop (stops cleanly on SIGTERM)
+uv run python -m momentum.alerts once                          # one cycle, e.g. from cron
+```
+
+Several loops at once are safe: each state change is a compare-and-set in the database, so an
+alert notifies once whichever loop sees the cross first.
+
+**Email** goes only to an address the identity provider has verified, so it needs
+[sign-in](#sign-in-optional) plus an SMTP server. Locally, Mailpit catches everything:
+
+```bash
+docker compose -p roadmap-momentum up -d mailpit      # SMTP on 5422, inbox at http://127.0.0.1:5423
+MOMENTUM_SMTP_HOST=127.0.0.1 MOMENTUM_SMTP_PORT=5422 MOMENTUM_SMTP_STARTTLS=0 MOMENTUM_SMTP_FROM="Momentum <alerts@momentum.test>" uv run streamlit run serve.py
+```
+
+**Webhooks** receive a JSON `POST` for each alert that has Webhook ticked. Add the URL under
+*Webhook delivery* in the Alerts tab; the signing secret is shown once.
+
+- Only `https` URLs that resolve to public addresses are accepted, and the request goes to the
+  address that was checked.
+- Redirects are not followed and requests time out after 5 s.
+- Failed deliveries are retried with backoff, up to six attempts.
+- Every request carries `Momentum-Event-Id` (for de-duplication) and
+  `Momentum-Signature: t=<unix time>,v1=<hex>`.
+
+To verify a request:
+
+```python
+import hashlib, hmac, time
+
+
+def verify(secret: str, header: str, body: bytes, tolerance_s: int = 300) -> bool:
+    fields = dict(part.split("=", 1) for part in header.split(","))
+    timestamp, signature = int(fields["t"]), fields["v1"]
+    expected = hmac.new(secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256)
+    fresh = abs(time.time() - timestamp) <= tolerance_s
+    return fresh and hmac.compare_digest(expected.hexdigest(), signature)
+```
+
+To see an alert fire without waiting for the market, create one in the Alerts tab (for example
+AAPL, price crosses above 250, in demo mode) and replay prices into it:
+
+```bash
+uv run python -m momentum.alerts replay AAPL 240 251    # 240 arms it, 251 crosses
+```
 
 ## Testing and quality
 
@@ -260,8 +441,12 @@ uv run mypy                  # strict mode
 - **Server** tests drive `momentum.server` as plain ASGI: gzip and its cache, pass-through for
   HEAD, Range and media requests, the rewritten document head, robots.txt, and that
   `streamlit run serve.py` detects the app.
-- **UI** tests cover the per-theme Plotly templates, line colour by direction, the previous-close
-  reference, stable series colours, the rail model and sparkline geometry, header markup and
+- **Chart** tests cover the payloads (panes, overlays, bands, line colour by direction, the
+  previous-close reference, exchange-local times, plain JSON with no NaN), and, in Chromium, the
+  built bundle itself: the readout, the sweep and its replay on a new key, reduced motion, the
+  "Set an alert at" offer and the event it sends, the TradingView attribution link, and a rebuild
+  on a style change. A browser end-to-end test runs the chart-to-alert flow in the live app.
+- **UI** tests cover stable series colours, the rail model and sparkline geometry, header markup and
   escaping, the number roll's markup, the KPI payload, and the WCAG contrast of every text colour.
 - **Motion** tests check that the stylesheets animate only transform, opacity and clip-path and
   that the chart sweep exists only without a reduced-motion preference. In Chromium (Playwright)
@@ -270,10 +455,17 @@ uv run mypy                  # strict mode
   figure moves, reduced motion shows the final value at once, and the rail's indicator lands on
   the selected row.
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, mypy, tests with coverage, a check that
-`requirements.txt` matches `uv.lock`, and a Docker build whose container must report healthy, run
-as non-root, render the app (AppTest inside the image) and serve robots.txt, the real title and a
-gzipped bundle.
+CI (`.github/workflows/ci.yml`) runs:
+
+- lint, format check, mypy and tests with coverage, with a Postgres and a Mailpit service for the
+  storage and email tests;
+- a check that `requirements.txt` matches `uv.lock`;
+- a chart job that typechecks the component, rebuilds it and fails if the committed bundle
+  differs;
+- a Docker build whose container must report healthy, run as non-root, render the app (AppTest
+  inside the image, with the chart served from the package's asset directory), migrate its SQLite
+  database, set the signed device cookie, and serve robots.txt, the real title and a gzipped
+  bundle.
 
 To refresh the README screenshots, start the app and run
 `uv run --group screenshots python scripts/capture_screenshots.py` (add `--demo` for synthetic data).
@@ -291,14 +483,26 @@ The hero images come from `uv run python scripts/make_hero.py`.
 │   ├── data.py                # providers, parsing, loaders, cached API
 │   ├── demo.py                # deterministic synthetic provider
 │   ├── indicators.py          # SMA, EMA, RSI, MACD, Bollinger, returns, drawdown
-│   ├── charts.py              # Plotly price/indicator and comparison figures
+│   ├── charts.py              # chart payloads (price + indicator panes, comparison)
+│   ├── fundamentals.py        # statements and dividends: model, Yahoo parsing, cache
+│   ├── portfolio.py           # FIFO lots, P&L and per-currency totals (pure)
+│   ├── alphavantage.py        # second provider; providers.py is the fallback chain
+│   ├── identity.py            # accounts, signed device cookies, the cookie middleware
+│   ├── settings.py            # environment configuration
+│   ├── store/                 # SQLite/Postgres, migrations, watchlist/alert/portfolio repositories
+│   ├── alerts/                # rules, evaluation, delivery, the worker loop and its CLI
+│   ├── pyproject.toml         # Streamlit component manifest (the chart's asset_dir)
 │   ├── theme.py               # light and dark design tokens
 │   ├── formatting.py          # currency-aware number formatting
 │   ├── server.py              # gzip, robots.txt and head tags around Streamlit (ASGI)
-│   └── ui/                    # views, components, KPI/rail/message models, styles.css, rail.js/css
+│   └── ui/                    # views, components, KPI/rail/message models, styles.css, rail.js/css,
+│                              # chart/ (the built chart bundle and its third-party notices)
+├── frontend/chart/            # the chart component's TypeScript source and esbuild script
 ├── tests/                     # pytest suite (no network)
 ├── scripts/                   # capture_screenshots.py, make_hero.py
-├── docs/                      # hero-light/dark.svg, screenshots/
+├── docs/                      # adr/, hero-light/dark.svg, screenshots/
+├── deploy/keycloak/           # local OIDC realm for sign-in (compose profile "oidc")
+├── compose.yaml               # Postgres, Mailpit and Keycloak for development and tests
 ├── .streamlit/config.toml     # light + dark theme
 ├── Dockerfile, .dockerignore
 ├── pyproject.toml, uv.lock, requirements.txt
@@ -338,19 +542,11 @@ The hero images come from `uv run python scripts/make_hero.py`.
 
 Market data comes from Yahoo Finance through [yfinance](https://github.com/ranaroussi/yfinance), an
 **unofficial**, community-maintained library that is not affiliated with or endorsed by Yahoo.
+If you configure it, [Alpha Vantage](https://www.alphavantage.co/) serves as a fallback under your
+own key and its terms.
 Data may be delayed, incomplete or briefly unavailable, and Yahoo can rate-limit requests. Use is
 subject to Yahoo's terms. This project is for education and personal use. **It is not financial
 advice.**
-
-## Roadmap (future work)
-
-These features are not implemented yet:
-
-- Persist the watchlist per user (it currently lives in the browser session).
-- Price and indicator alerts.
-- Portfolio view with holdings, cost basis and P&L.
-- A second data provider (e.g. a licensed API) behind the existing `MarketDataProvider` interface.
-- Fundamentals tab (income statement, balance sheet, dividends).
 
 ## License
 

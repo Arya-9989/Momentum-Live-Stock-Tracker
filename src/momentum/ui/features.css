@@ -1,0 +1,128 @@
+/*
+ * Styles for the Alerts, Portfolio and Fundamentals views. Tokens (--mm-*) come
+ * from styles.css. Same rules as there: paint only for anything above the fold,
+ * no less-than sign followed by a letter (DOMPurify), tabular figures for numbers.
+ */
+
+/* ---------------------------------------------------------------- shared */
+.mm-fsection { display: flex; align-items: baseline; gap: 0.75rem; margin: 2.75rem 0 0.5rem; }
+[data-testid="stApp"] .mm-fsection h2 {
+  margin: 0; padding: 0; color: var(--mm-ink); font-weight: 600;
+  font-size: 21px; line-height: 25px; letter-spacing: -0.01em;
+}
+.mm-fsub { margin: 0; font-size: 15px; line-height: 20px; color: var(--mm-secondary); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- alerts */
+.mm-alert { min-width: 0; flex: 1 1 auto; padding: 10px 0; }
+.mm-alert p { margin: 0; }
+.mm-alert-title { font-size: 17px; line-height: 22px; color: var(--mm-ink); font-weight: 500; }
+.mm-alert-title .mm-sym { font-weight: 600; margin-right: 0.35rem; }
+.mm-alert-meta {
+  margin-top: 2px !important; font-size: 13px; line-height: 18px; color: var(--mm-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.mm-tag {
+  display: inline-block; margin-left: 0.4rem; padding: 0 8px; border-radius: 980px;
+  background: var(--mm-fill); color: var(--mm-secondary-strong); font-size: 12px; line-height: 20px;
+  font-weight: 500; vertical-align: 2px;
+}
+[class*="st-key-alert_row_"] { border-bottom: 1px solid var(--mm-hairline); }
+
+.mm-events { list-style: none; margin: 0; padding: 0; }
+.mm-event {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  padding: 11px 0; border-bottom: 1px solid var(--mm-hairline);
+  font-size: 15px; line-height: 20px; color: var(--mm-secondary);
+}
+.mm-event[data-unread="true"] { color: var(--mm-ink); font-weight: 500; }
+.mm-event[data-unread="true"] span::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px;
+  border-radius: 50%; background: var(--mm-focus); vertical-align: 1px;
+}
+.mm-event time {
+  flex: none; font-size: 13px; color: var(--mm-secondary); font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Beside a 68px label-and-field: centred on the 40px field below the label. */
+.mm-hint { margin: 0; padding-top: 38px; font-size: 14px; line-height: 20px; color: var(--mm-secondary); }
+
+@media (max-width: 640px) {
+  .mm-event { flex-direction: column; gap: 2px; }
+}
+
+/* Row actions never shrink into an ellipsis ("Del..."). */
+[class*="st-key-alert_delete_"] { flex: none; }
+
+/* ---------------------------------------------------------------- portfolio */
+/* Numerals first: the value is the hero, in tabular figures, like a quote. */
+.mm-psummary { padding: 8px 0 0; }
+.mm-psummary p, .mm-psummary dl { margin: 0; }
+.mm-plabel { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--mm-secondary); letter-spacing: 0.01em; }
+.mm-pvalue {
+  margin-top: 2px !important; font-size: 44px; line-height: 52px; font-weight: 600;
+  letter-spacing: -0.02em; color: var(--mm-ink);
+}
+[data-testid="stApp"] .mm-pstats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; row-gap: 8px;
+  margin: 12px 0 0; padding: 0; /* Streamlit indents a dl by 32px */
+}
+.mm-pstat { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0; }
+.mm-pstat dt { margin: 0; padding: 0; font-size: 13px; line-height: 18px; color: var(--mm-secondary); }
+.mm-pstat dd { margin: 0; padding: 0; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--mm-ink); }
+.mm-pstat dd .mm-pct { display: block; font-size: 13px; line-height: 18px; font-weight: 500; }
+.mm-pstat dd.up { color: var(--mm-up); }
+.mm-pstat dd.down { color: var(--mm-down); }
+.mm-pnote { margin-top: 8px !important; font-size: 12px; line-height: 16px; color: var(--mm-secondary); }
+@media (max-width: 640px) {
+  .mm-pvalue { font-size: 36px; line-height: 44px; }
+  .mm-pstat dd { font-size: 15px; line-height: 20px; }
+}
+
+/* ---------------------------------------------------------------- fundamentals */
+.mm-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.mm-fstats .mm-pstat dt { font-size: 13px; line-height: 18px; color: var(--mm-secondary); }
+.mm-fstats .mm-pstat dd.mm-num {
+  font-size: 24px; line-height: 30px; font-weight: 600; color: var(--mm-ink); letter-spacing: -0.01em;
+}
+.mm-fstats .mm-pstat dd.mm-fnote { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--mm-secondary); }
+.mm-ftable table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.mm-ftable th, .mm-ftable td {
+  height: 44px; padding: 0 12px; border-bottom: 1px solid var(--mm-hairline);
+  font-size: 15px; line-height: 20px; white-space: nowrap;
+}
+.mm-ftable thead th { color: var(--mm-secondary); font-size: 13px; font-weight: 500; text-align: right; }
+.mm-ftable thead th:first-child, .mm-ftable tbody th { text-align: left; padding-left: 0; }
+.mm-ftable tbody th { color: var(--mm-ink); font-weight: 500; }
+.mm-ftable td { text-align: right; color: var(--mm-ink); }
+.mm-ftable tr.mm-ratio th, .mm-ftable tr.mm-ratio td { color: var(--mm-secondary); font-weight: 400; }
+.mm-fdivs table { max-width: 420px; }
+
+/* ---------------------------------------------------------------- controls */
+/* The new views' segmented controls look like the range control (styles.css). */
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radiogroup"] {
+  padding: 3px; border-radius: 10px; background: var(--mm-fill); flex-wrap: nowrap;
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] {
+  padding: 4px 12px; border-color: transparent !important; border-radius: 8px !important;
+  background: transparent; color: var(--mm-ink); box-shadow: none;
+  transition: background-color 180ms var(--mm-ease);
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] p { color: var(--mm-ink); }
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"]:hover { background: var(--mm-fill-hover); }
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"],
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"]:is(:hover, :focus, :active) {
+  background: var(--mm-raised) !important; color: var(--mm-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06) !important;
+}
+:is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"] p { color: var(--mm-ink); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] { transition: none; }
+}
+
+/* Six tabs overflow a phone: the list scrolls sideways, and Streamlit's 20px
+   scroll buttons are widened to a valid touch target (WCAG 2.5.8). */
+:is([data-testid="stTabsScrollLeft"], [data-testid="stTabsScrollRight"]) { min-width: 28px; }

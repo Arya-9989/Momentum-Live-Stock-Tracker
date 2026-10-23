@@ -22,12 +22,15 @@ from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol
 
 import pandas as pd
 import streamlit as st
 
 from momentum import config
+
+if TYPE_CHECKING:
+    from momentum.fundamentals import Frequency, Fundamentals
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +192,11 @@ class YahooProvider:
             raise DataSourceError(msg)
         return payload
 
+    def fundamentals(self, symbol: str, frequency: Frequency) -> Fundamentals:
+        from momentum.fundamentals import yahoo_fundamentals
+
+        return yahoo_fundamentals(symbol, frequency)
+
 
 def _translate_yahoo_error(symbol: str, exc: Exception) -> DataError:
     """Map yfinance/HTTP exceptions onto the small ``DataError`` hierarchy."""
@@ -212,12 +220,19 @@ def _translate_yahoo_error(symbol: str, exc: Exception) -> DataError:
     )
 
 
+translate_yahoo_error = _translate_yahoo_error  # public for the fundamentals module
+
+
 def get_provider(demo: bool) -> MarketDataProvider:
+    """Synthetic data in demo mode; otherwise the configured provider or chain
+    (``MOMENTUM_PROVIDERS``, Yahoo Finance by default; see momentum.providers)."""
     if demo:
         from momentum.demo import DemoProvider
 
         return DemoProvider()
-    return YahooProvider()
+    from momentum.providers import live_provider
+
+    return live_provider()
 
 
 # --------------------------------------------------------------------------- parsing
@@ -540,6 +555,9 @@ def cached_closes(symbols: tuple[str, ...], period: str, interval: str, demo: bo
 
 
 def clear_caches() -> None:
+    from momentum.fundamentals import cached_fundamentals
+
+    cached_fundamentals.clear()
     for func in (
         _history_short_ttl,
         _history_long_ttl,

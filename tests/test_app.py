@@ -50,6 +50,15 @@ def component_names(at: AppTest) -> list[str]:
     return [str(el.proto.component_name) for el in at.get("bidi_component")]
 
 
+def chart_payloads(at: AppTest) -> list[dict[str, Any]]:
+    """The data sent to each chart component (the Lightweight Charts chart)."""
+    return [
+        json.loads(el.proto.json)
+        for el in at.get("bidi_component")
+        if "price_chart" in str(el.proto.component_name)
+    ]
+
+
 def component_data(at: AppTest, name: str) -> Any:
     """The JSON a v2 component was mounted with (its rendered content)."""
     for el in at.get("bidi_component"):
@@ -67,9 +76,12 @@ def test_overview_renders_kpis_chart_and_stats() -> None:
     assert not at.exception
     assert "Apple Inc." in html_text(at)
     assert kpi_labels(at)[:2] == ["6M return", "Market cap"]
-    assert len(at.get("plotly_chart")) == 1
+    (chart,) = chart_payloads(at)
+    assert chart["key"] == "AAPL|6M|1d|Line"
+    assert str(chart["alt"]).startswith("Apple Inc. (AAPL), 6M daily chart:")
     assert "Demo mode" in html_text(at)  # one-line notice, shown whenever demo data is on
     assert component_names(at) == [
+        "momentum.price_chart",  # served from the package's asset_dir
         "momentum_kpi_row",
         "momentum_watchlist_rail",
         "momentum_theme_watch",
@@ -136,7 +148,7 @@ def test_compare_and_watchlist_explain_a_total_outage() -> None:
     compare = run(demo=False, view="Compare")
     assert not compare.exception
     assert "reach Yahoo Finance." in html_text(compare)
-    assert not compare.get("plotly_chart")
+    assert not chart_payloads(compare)
     watch = run(demo=False, view="Watchlist")
     assert not watch.exception
     assert "reach Yahoo Finance." in html_text(watch)
@@ -146,7 +158,9 @@ def test_compare_and_watchlist_explain_a_total_outage() -> None:
 def test_compare_and_watchlist_tabs() -> None:
     compare = run(view="Compare")
     assert not compare.exception
-    assert len(compare.get("plotly_chart")) == 1
+    (chart,) = chart_payloads(compare)
+    assert chart["zeroLine"] is True
+    assert [s["title"] for s in chart["series"]] == ["AAPL", "MSFT", "^GSPC"]
     assert len(compare.dataframe) == 1
 
     watch = run(view="Watchlist")

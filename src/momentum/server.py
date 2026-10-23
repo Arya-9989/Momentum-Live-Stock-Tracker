@@ -22,7 +22,8 @@ so this module fixes all of that in-process, without a reverse proxy:
 * It rewrites the HTML document: title, description, no unused font preload,
   and one critical CSS rule that keeps the main block hidden until the wide
   layout applies.
-* ``ROUTES`` adds a real ``robots.txt``.
+* ``ROUTES`` adds a real ``robots.txt`` and ``/readyz`` (database reachable and
+  migrated, alert loop running when it should be).
 
 Everything here is plain ASGI and is unit-tested without a server.
 """
@@ -32,15 +33,19 @@ from __future__ import annotations
 import gzip
 import html
 import re
-from collections.abc import Awaitable, Callable, MutableMapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Final
 
 import anyio.to_thread
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
+from streamlit.runtime.secrets import SecretsValue
+
+from momentum.identity import DeviceCookieMiddleware, derive_key
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
@@ -228,5 +233,99 @@ async def robots(_: Request) -> PlainTextResponse:
     return PlainTextResponse(ROBOTS_TXT, headers={"Cache-Control": "public, max-age=86400"})
 
 
-ROUTES: Final = [Route("/robots.txt", robots, methods=["GET", "HEAD"])]
-MIDDLEWARE: Final = [Middleware(FrontendMiddleware)]
+def readiness() -> tuple[bool, dict[str, Any]]:
+    """Whether this process can serve saved data: the database answers and its
+    schema is fully migrated. Also reports the alert loop's mode and state."""
+    from momentum import settings as settings_mod
+    from momentum import store
+    from momentum.alerts import worker
+    from momentum.store.schema import current_version, load_migrations
+
+    config = settings_mod.load()
+    loop = worker._running.get("worker")
+    report: dict[str, Any] = {
+        "alert_worker": config.alert_worker,
+        "alert_worker_running": bool(loop and loop.running),
+    }
+    try:
+        db = store.get_store(config).db
+        version = current_version(db)
+        expected = len(load_migrations(db.dialect))
+    except (store.StoreError, OSError, ValueError) as exc:
+        return False, report | {"status": "unavailable", "database": type(exc).__name__}
+    report |= {"database": db.dialect, "schema": version, "schema_expected": expected}
+    if version != expected:
+        return False, report | {"status": "migrating"}
+    if config.alert_worker == "auto" and not report["alert_worker_running"]:
+        return False, report | {"status": "alert worker not running"}
+    return True, report | {"status": "ready"}
+
+
+async def ready(_: Request) -> JSONResponse:
+    """``/readyz`` for orchestrators (``/_stcore/health`` only says the process is up).
+    No secrets or data in the body; 503 until the database is reachable and migrated."""
+    ok, report = await anyio.to_thread.run_sync(readiness)
+    return JSONResponse(
+        report, status_code=200 if ok else 503, headers={"Cache-Control": "no-store"}
+    )
+
+
+ROUTES: Final = [
+    Route("/robots.txt", robots, methods=["GET", "HEAD"]),
+    Route("/readyz", ready, methods=["GET"]),
+]
+# The device cookie is outermost, so it sees the final document response.
+MIDDLEWARE: Final = [Middleware(DeviceCookieMiddleware), Middleware(FrontendMiddleware)]
+
+
+@asynccontextmanager
+async def lifespan(_app: object) -> AsyncIterator[None]:
+    """Run the alert loop for as long as the server runs, and stop it cleanly.
+
+    The worker module is imported here, not at the top: it pulls in the data
+    layer, whose Streamlit caches should be created once the runtime exists.
+    """
+    from momentum import store
+    from momentum.alerts import worker
+
+    worker.ensure_started()
+    try:
+        yield
+    finally:
+        await anyio.to_thread.run_sync(worker.stop_running)
+        store.close_all()
+
+
+_OIDC_ENV: Final = {
+    "server_metadata_url": "MOMENTUM_OIDC_SERVER_METADATA_URL",
+    "client_id": "MOMENTUM_OIDC_CLIENT_ID",
+    "client_secret": "MOMENTUM_OIDC_CLIENT_SECRET",
+    "redirect_uri": "MOMENTUM_OIDC_REDIRECT_URI",
+}
+
+
+def oidc_secrets(env: Mapping[str, str]) -> dict[str, SecretsValue]:
+    """``st.login`` configuration from environment variables (for containers).
+
+    ``secrets.toml`` works as usual; this only lets a deployment configure OIDC
+    without mounting a file. It is all-or-nothing: a partial configuration is
+    an error, not a silently disabled sign-in. The session-cookie secret is
+    ``MOMENTUM_OIDC_COOKIE_SECRET`` or, failing that, derived from
+    ``MOMENTUM_SECRET_KEY``.
+    """
+    values = {key: env.get(name, "").strip() for key, name in _OIDC_ENV.items()}
+    if not any(values.values()):
+        return {}
+    missing = [_OIDC_ENV[key] for key, value in values.items() if not value]
+    if missing:
+        msg = f"OIDC sign-in is partly configured; also set {', '.join(missing)}"
+        raise ValueError(msg)
+    cookie_secret = env.get("MOMENTUM_OIDC_COOKIE_SECRET", "").strip()
+    if not cookie_secret:
+        base = env.get("MOMENTUM_SECRET_KEY", "").strip()
+        if len(base) < 32:
+            msg = "Set MOMENTUM_OIDC_COOKIE_SECRET or MOMENTUM_SECRET_KEY (32+ characters)"
+            raise ValueError(msg)
+        cookie_secret = derive_key(base, b"momentum/oidc-cookie/v1").hex()
+    auth: dict[str, SecretsValue] = {**values, "cookie_secret": cookie_secret}
+    return {"auth": auth}

@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from functools import cache
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import streamlit as st
@@ -66,7 +66,7 @@ _KPIS = st.components.v2.component(
 
 # A zero-height page helper with two jobs:
 # 1. Streamlit does not rerun when the viewer switches theme (from the OS or the
-#    main menu), but the Plotly figures are drawn per theme on the server. It
+#    main menu), but the charts are drawn per theme on the server. It
 #    notices the switch and asks for exactly one rerun (it remembers the scheme
 #    it reported, so a rerun can never trigger another).
 # 2. On touch screens the range controls scroll sideways so every segment is a
@@ -224,8 +224,8 @@ def hairline() -> None:
     st.html('<hr class="mm-hairline" style="margin:0;border:0;height:1px">')
 
 
-def fineprint(text: str) -> None:
-    st.html(f'<p class="mm-fineprint">{escape(text)}</p>')
+def fineprint(text: str, *, width: Literal["stretch", "content"] = "stretch") -> None:
+    st.html(f'<p class="mm-fineprint">{escape(text)}</p>', width=width)
 
 
 def demo_notice() -> None:
@@ -593,9 +593,3 @@ def csv_download(
         type="tertiary",
         key=key,
     )
-
-
-def plotly_config() -> dict[str, Any]:
-    # Drag to zoom, double-click to reset; the modebar is hidden because it
-    # overlaps the legend on phones and adds little over those gestures.
-    return {"displaylogo": False, "displayModeBar": False, "scrollZoom": False, "responsive": True}

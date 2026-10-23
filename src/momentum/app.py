@@ -17,12 +17,24 @@ import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
 from momentum import config, data
+from momentum.alerts import worker
 from momentum.data import DataError
+from momentum.identity import Identity
 from momentum.theme import get_theme
-from momentum.ui import components, views
+from momentum.ui import (
+    alerts_view,
+    components,
+    data_view,
+    fundamentals_view,
+    portfolio_view,
+    saved,
+    session,
+    styling,
+    views,
+)
 from momentum.ui.rail import rail_height
 
-TABS = ("Overview", "Compare", "Watchlist")
+TABS = ("Overview", "Fundamentals", "Compare", "Watchlist", "Portfolio", "Alerts")
 RAIL_WIDTH = 320
 SEARCH_WIDTH = 200  # wordmark + field fit one row at 390 px
 FIRST_PAINT_PAUSE_S = 0.12
@@ -59,7 +71,9 @@ def _current_symbol(raw: str) -> str | None:
         return None
 
 
-def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool) -> None:
+def _rail(
+    rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool, who: Identity
+) -> None:
     """Watchlist rail: list, demo toggle, refresh and the data-source note."""
     count = len(views.watchlist_symbols())
     with rail:
@@ -70,14 +84,14 @@ def _rail(rail: DeltaGenerator, raw_symbol: str, demo: bool, *, first_run: bool)
             first_run=first_run,
             skeleton=lambda: components.rail_skeleton(count),
         )
-        _data_controls()
+        _data_controls(who)
     with slot:
         views.watchlist_rail(_current_symbol(raw_symbol), demo)
 
 
-def _data_controls() -> None:
-    """Demo toggle, refresh and the data-source note (rail footer, or under the
-    watchlist table when the rail steps aside)."""
+def _data_controls(who: Identity) -> None:
+    """Demo toggle, refresh, "Your data" and the data-source note (rail footer, or
+    under the watchlist table when the rail steps aside)."""
     with st.container(key="data_controls"):
         components.hairline()
         st.toggle(
@@ -93,6 +107,7 @@ def _data_controls() -> None:
             key="refresh",
             on_click=data.clear_caches,
         )
+        data_view.your_data(who)
         components.fineprint(
             "Demo data is synthetic and works offline. Live data comes from Yahoo Finance "
             "via the unofficial yfinance library and may be delayed or incomplete. "
@@ -112,7 +127,10 @@ def main() -> None:
     if first_run:
         _let_layout_settle()
     components.inject_styles()
+    styling.inject_feature_styles()
     theme = get_theme(st.context.theme.type)
+    who = session.current_identity()
+    saved.sync_watchlist(who)
 
     # Fixed height, like every other row above the fold: if the search field's
     # code fails to load, its error card must not push the page down.
@@ -151,12 +169,15 @@ def main() -> None:
     with main_column:
         if demo:
             components.demo_notice()
-        overview_tab, compare_tab, watch_tab = st.tabs(
+        overview_tab, fundamentals_tab, compare_tab, watch_tab, portfolio_tab, alerts_tab = st.tabs(
             list(TABS), key="view", on_change="rerun", bind="query-params"
         )
         if overview_tab.open is not False:
             with overview_tab:
                 views.overview(raw_symbol or "", demo, theme, first_run=first_run)
+        if fundamentals_tab.open:
+            with fundamentals_tab:
+                fundamentals_view.fundamentals(raw_symbol or "", demo)
         if compare_tab.open:
             with compare_tab:
                 views.compare(
@@ -167,7 +188,13 @@ def main() -> None:
                 )
         if watch_tab.open:
             with watch_tab:
-                views.watchlist(demo, theme, first_run=first_run)
+                views.watchlist(demo, theme, first_run=first_run, who=who)
+        if portfolio_tab.open:
+            with portfolio_tab:
+                portfolio_view.portfolio(raw_symbol or "", demo, who, theme)
+        if alerts_tab.open:
+            with alerts_tab:
+                alerts_view.alerts(raw_symbol or "", demo, who)
 
     # The rail renders after the main column: on phones it sits below it, so
     # rendering it first would let the arriving chart push it down the page.
@@ -175,10 +202,15 @@ def main() -> None:
     # there (an empty container takes no space) and the table gets the width.
     if watch_tab.open:
         with main_column:
-            _data_controls()
+            _data_controls(who)
     else:
-        _rail(rail, raw_symbol or "", demo, first_run=first_run)
+        _rail(rail, raw_symbol or "", demo, first_run=first_run, who=who)
 
     st.space("large")
     components.theme_watcher()
+    if who.persistent:
+        alerts_view.notification_toasts()
+    # Alerts are checked by a background loop; serve.py starts it with the server,
+    # and this starts it under plain `streamlit run` (once per process).
+    worker.ensure_started()
     st.session_state["_mm_rendered"] = True

@@ -15,7 +15,7 @@ from momentum.ui import components
 from momentum.ui.kpis import Kpi, build_kpis
 
 UI = Path(components.__file__).parent
-STYLESHEETS = ("styles.css", "rail.css", "kpis.css")
+STYLESHEETS = ("styles.css", "rail.css", "kpis.css", "chart/momentum-chart.css")
 # Hard rule: only compositor-friendly properties move (plus colour fades on hover).
 ANIMATABLE = {"opacity", "transform", "clip-path", "visibility"}
 HOVER_FADES = {"background-color"}
@@ -51,16 +51,32 @@ def test_only_opacity_transform_and_clip_path_animate(name: str) -> None:
 
 
 def test_chart_sweep_runs_only_without_a_reduced_motion_preference() -> None:
-    text = css("styles.css")
+    # The chart is a Lightweight Charts component in a shadow root, so the sweep
+    # lives in its own stylesheet (built from frontend/chart/src/chart.css).
+    text = css("chart/momentum-chart.css")
     block = re.search(
-        r"@media \(prefers-reduced-motion: no-preference\) \{(\s*:is\(\.st-key-chart_slot.*?)\n\}",
+        r"@media \(prefers-reduced-motion: no-preference\) \{(\s*\.mm-chart-curtain.*?)\n\}",
         text,
         re.S,
     )
     assert block is not None
     assert "animation: mm-sweep" in block.group(1)
     assert text.count("animation: mm-sweep") == 1  # nowhere outside that block
-    assert ".mlayer" in block.group(1)  # traces only: axes and grid are there at once
+    # The curtain covers the plot area only (sized from the time scale in JS), so
+    # the axes and their labels are there at once; the series sweep in under it.
+    assert ".mm-sweeping" in block.group(1)
+    assert re.search(
+        r"@media \(prefers-reduced-motion: reduce\) \{\s*\.mm-chart-curtain \{ display: none", text
+    )
+    assert "animation: mm-sweep" not in css("styles.css")  # no Plotly rule left behind
+
+
+def test_chart_replays_the_sweep_when_what_it_shows_changes() -> None:
+    source = UI.parents[2] / "frontend" / "chart" / "src" / "index.ts"
+    js = source.read_text(encoding="utf-8")
+    assert "if (payload.key !== state.key)" in js  # symbol, range, interval or style
+    assert "if (matchMedia(REDUCED).matches) return; // final state at once" in js
+    assert "innerHTML" not in js
 
 
 def test_header_roll_runs_only_without_a_reduced_motion_preference() -> None:
@@ -76,7 +92,7 @@ def test_header_roll_runs_only_without_a_reduced_motion_preference() -> None:
     assert re.search(r"\.mm-out \{[^}]*visibility: hidden", text)
 
 
-@pytest.mark.parametrize("name", ["rail.css", "kpis.css"])
+@pytest.mark.parametrize("name", ["rail.css", "kpis.css", "chart/momentum-chart.css"])
 def test_shadow_root_stylesheets_have_their_own_reduced_motion_rule(name: str) -> None:
     # styles.css's global reduced-motion rule cannot reach into shadow roots.
     assert "prefers-reduced-motion: reduce" in css(name)

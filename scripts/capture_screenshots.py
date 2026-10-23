@@ -20,6 +20,8 @@ from playwright.sync_api import Browser, Page, sync_playwright
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
 RAIL = '[data-testid="stBidiComponentIsolated"]'
 TABLE = '[data-testid="stDataFrame"] canvas'
+# Present while a script run is in progress or a lazily loaded element is still a placeholder.
+BUSY = '[data-testid="stStatusWidget"], .stSkeleton, [data-testid="stSkeleton"]'
 
 
 def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) -> None:
@@ -27,16 +29,19 @@ def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) ->
     if selector:
         page.wait_for_selector(selector, timeout=90_000)
     if charts:
-        page.wait_for_function(
-            f"document.querySelectorAll('.js-plotly-plot .main-svg').length >= {charts}",
-            timeout=90_000,
-        )
-    # Let the script run finish (the status widget disappears) and fonts/plots settle.
+        # The chart component draws into canvases inside its shadow root (locators pierce it).
+        page.locator(".mm-chart-plot canvas").nth(charts - 1).wait_for(timeout=90_000)
+    # Let the script run finish (the status widget disappears), fonts load and the
+    # charts' sweep-in end.
     page.wait_for_function(
         "!document.querySelector('[data-testid=\"stStatusWidget\"]')", timeout=90_000
     )
     page.wait_for_function("document.fonts.status === 'loaded'", timeout=30_000)
     page.wait_for_timeout(2_000)
+    # A lazy element or a timed fragment can start another run during the pause, and lazily
+    # loaded elements show a skeleton until their code arrives.
+    page.wait_for_function(f"!document.querySelector('{BUSY}')", timeout=90_000)
+    page.wait_for_timeout(500)
 
 
 def shoot(page: Page, url: str, name: str, *, charts: int = 1, selector: str | None = None) -> None:
@@ -66,7 +71,7 @@ def crosshair(page: Page, url: str, name: str) -> None:
     page.get_by_label("MACD (12, 26, 9)").check(force=True)
     page.keyboard.press("Escape")
     wait_for_app(page)
-    chart = page.locator(".st-key-chart_slot .js-plotly-plot")
+    chart = page.locator(".st-key-chart_slot .mm-chart")
     chart.scroll_into_view_if_needed()
     box = chart.bounding_box()
     assert box is not None
@@ -82,6 +87,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://localhost:8501")
     parser.add_argument("--demo", action="store_true", help="screenshot with demo data")
+    parser.add_argument(
+        "--device-cookie",
+        help="a momentum_device cookie whose owner has a portfolio and alerts (for those tabs)",
+    )
     args = parser.parse_args()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +112,17 @@ def main() -> None:
 
         page = desktop(browser, "light", 1200)
         crosshair(page, f"{base}/?ticker=AAPL&range=3M{demo}", "crosshair")
+        shoot(page, f"{base}/?ticker=AAPL&view=Fundamentals{demo}", "fundamentals", charts=0)
         page.context.close()
+
+        if args.device_cookie:
+            page = desktop(browser, "light", 1100)
+            page.context.add_cookies(
+                [{"name": "momentum_device", "value": args.device_cookie, "url": base}]
+            )
+            shoot(page, f"{base}/?view=Portfolio{demo}", "portfolio", charts=0)
+            shoot(page, f"{base}/?view=Alerts{demo}", "alerts", charts=0)
+            page.context.close()
 
         mobile = browser.new_context(
             viewport={"width": 390, "height": 844},
