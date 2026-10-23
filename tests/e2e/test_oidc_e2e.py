@@ -94,7 +94,15 @@ def test_account_owns_its_watchlist_and_gets_email(e2e_url: str, browser: Any, o
     settle(page)
     assert "Alert created: MSFT Price crosses above $600.00." in page.inner_text("body")
 
-    env = {**os.environ, "MOMENTUM_DATA_DIR": data_dir}
+    # The replay stands in for the external alert worker, so it gets the server's mail setup.
+    env = {
+        **os.environ,
+        "MOMENTUM_DATA_DIR": data_dir,
+        "MOMENTUM_SMTP_HOST": "127.0.0.1",
+        "MOMENTUM_SMTP_PORT": os.environ.get("MOMENTUM_TEST_MAILPIT_SMTP_PORT", "5422"),
+        "MOMENTUM_SMTP_STARTTLS": "0",
+        "MOMENTUM_SMTP_FROM": "Momentum <alerts@momentum.test>",
+    }
     result = subprocess.run(
         [sys.executable, "-m", "momentum.alerts", "replay", "MSFT", "590", "605"],
         env=env, capture_output=True, text=True, timeout=60, check=True,
