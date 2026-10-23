@@ -12,8 +12,9 @@
 A fast, mobile-friendly Streamlit dashboard for global stocks, indices, ETFs, FX and crypto.
 Type any Yahoo Finance symbol (`AAPL`, `LT.NS`, `VOD.L`, `^GSPC`, `BTC-USD`) to get an
 area-line or candlestick chart with technical indicators, key statistics, a company profile,
-multi-symbol comparison and a watchlist. All of it is backed by a typed, tested data layer that
-degrades gracefully when Yahoo misbehaves.
+fundamentals, multi-symbol comparison, a saved watchlist, a portfolio with FIFO profit and loss,
+and price and indicator alerts. All of it is backed by a typed, tested data layer that degrades
+gracefully when Yahoo misbehaves.
 
 ![Overview, light theme: price header, area chart with SMA overlays, and the watchlist rail](docs/screenshots/overview-light.png)
 
@@ -30,9 +31,16 @@ degrades gracefully when Yahoo misbehaves.
 
 ![One crosshair through the price, volume, RSI and MACD panels, with a readout listing every series](docs/screenshots/crosshair.png)
 
-<sub>Screenshots show live Yahoo Finance data (the 22 Oct 2026 US session), captured from the
-Docker image with <code>scripts/capture_screenshots.py</code> on 23 Oct 2026. The hero image above
-is an illustration and shows no market data.</sub>
+| Fundamentals | Portfolio |
+| --- | --- |
+| ![Fundamentals: revenue, margins and dividend tiles above the annual income statement](docs/screenshots/fundamentals.png) | ![Portfolio: value and profit and loss per currency above the holdings table](docs/screenshots/portfolio.png) |
+
+![Alerts: the new-alert form and four saved alerts on price, RSI, a moving-average cross and day change](docs/screenshots/alerts.png)
+
+<sub>Screenshots show live Yahoo Finance data (the 22 Oct 2026 US session), captured with
+<code>scripts/capture_screenshots.py</code> from <code>serve.py</code> on 23 Oct 2026. The portfolio
+and alerts belong to a sample viewer created for the captures. The hero image above is an
+illustration and shows no market data.</sub>
 
 ## Features
 

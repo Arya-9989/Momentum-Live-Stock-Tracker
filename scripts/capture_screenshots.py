@@ -20,6 +20,8 @@ from playwright.sync_api import Browser, Page, sync_playwright
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
 RAIL = '[data-testid="stBidiComponentIsolated"]'
 TABLE = '[data-testid="stDataFrame"] canvas'
+# Present while a script run is in progress or a lazily loaded element is still a placeholder.
+BUSY = '[data-testid="stStatusWidget"], .stSkeleton, [data-testid="stSkeleton"]'
 
 
 def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) -> None:
@@ -36,6 +38,10 @@ def wait_for_app(page: Page, *, charts: int = 1, selector: str | None = None) ->
     )
     page.wait_for_function("document.fonts.status === 'loaded'", timeout=30_000)
     page.wait_for_timeout(2_000)
+    # A lazy element or a timed fragment can start another run during the pause, and lazily
+    # loaded elements show a skeleton until their code arrives.
+    page.wait_for_function(f"!document.querySelector('{BUSY}')", timeout=90_000)
+    page.wait_for_timeout(500)
 
 
 def shoot(page: Page, url: str, name: str, *, charts: int = 1, selector: str | None = None) -> None:
