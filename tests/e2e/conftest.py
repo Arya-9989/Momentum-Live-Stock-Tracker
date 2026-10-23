@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -17,9 +18,14 @@ def e2e_url() -> str:
 
 
 @pytest.fixture(scope="session")
-def browser(e2e_url: str) -> Iterator[object]:
+def playwright_driver(e2e_url: str) -> Iterator[Any]:
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as pw:
-        instance = pw.chromium.launch()
-        yield instance
-        instance.close()
+        yield pw
+
+
+@pytest.fixture(scope="session")
+def browser(playwright_driver: Any) -> Iterator[object]:
+    instance = playwright_driver.chromium.launch()
+    yield instance
+    instance.close()

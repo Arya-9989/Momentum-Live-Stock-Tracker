@@ -25,7 +25,6 @@ ROW_HEIGHT: Final = 44
 STATS_HEIGHT: Final = 148  # two rows of label, figure and note
 LABEL_WIDTH: Final = 190
 PERIOD_WIDTH: Final = 136
-SECTION_HEIGHT: Final = 77  # a subsection heading: 44 px above, 25 px of type, 8 px below
 FREQUENCY_LABELS: Final = {"annual": "Annual", "quarterly": "Quarterly"}
 
 
@@ -289,7 +288,7 @@ def _fixed(key: str, height: int, render: Callable[[], object]) -> None:
 
 
 def _section(key: str, title: str, table: str, height: int) -> None:
-    _fixed(f"{key}_head", SECTION_HEIGHT, lambda: alerts_view.subsection(title))
+    alerts_view.subsection(title)  # already in a slot of its final height
     _fixed(key, height, lambda: st.html(table))
 
 

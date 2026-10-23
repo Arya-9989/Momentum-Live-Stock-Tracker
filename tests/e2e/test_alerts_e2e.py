@@ -28,7 +28,6 @@ from momentum.alerts.delivery import verify_signature
 from tests.e2e.helpers import open_app, settle
 
 pytestmark = pytest.mark.e2e
-RECEIVER_PORT = 5426
 
 
 class Hook(http.server.BaseHTTPRequestHandler):
@@ -47,9 +46,10 @@ class Hook(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def receiver() -> Iterator[str]:
     Hook.received = []
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", RECEIVER_PORT), Hook)
+    # Any free port: a fixed one collides with whatever else runs on this machine.
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Hook)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{RECEIVER_PORT}/momentum"
+    yield f"http://127.0.0.1:{server.server_address[1]}/momentum"
     server.shutdown()
     server.server_close()
 

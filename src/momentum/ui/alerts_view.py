@@ -43,6 +43,7 @@ _CURSOR_KEY: Final = "_alerts_toast_cursor"
 POLL_SECONDS: Final = 30
 FORM_ROW_HEIGHT: Final = 68  # px: a label above a 40 px field
 ACTIONS_ROW_HEIGHT: Final = 40
+SUBSECTION_HEIGHT: Final = 77  # a subsection heading: 44 px above, 25 px of type, 8 px below
 
 NO_IDENTITY = messages.Copy(
     "Alerts need a saved identity.",
@@ -342,8 +343,13 @@ def subsection_html(title: str, detail: str | None = None) -> str:
 
 
 def subsection(title: str, detail: str | None = None) -> None:
-    """A heading inside a tab: smaller than the page title, with an optional count."""
-    st.html(subsection_html(title, detail))
+    """A heading inside a tab: smaller than the page title, with an optional count.
+
+    It sits in a slot of its final height: until Streamlit has loaded the code for
+    ``st.html`` the element is a 40 px placeholder, and a heading growing to its real
+    height on arrival would push everything below it down."""
+    with st.container(height=SUBSECTION_HEIGHT, border=False):
+        st.html(subsection_html(title, detail))
 
 
 def alerts(raw_symbol: str, demo: bool, who: Identity) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yfinance
@@ -65,6 +66,34 @@ def test_session_viewers_are_told_why_there_is_no_form() -> None:
     assert not at.exception
     assert "Alerts need a saved identity." in html_text(at)
     assert not [b for b in at.button if str(b.key).startswith(("alert", "webhook"))]
+
+
+def heading_slots(node: Any) -> list[int | None]:
+    """The fixed pixel height of the block around each subsection heading (None if none)."""
+    found: list[int | None] = []
+    proto: Any = getattr(node, "proto", None)
+    height = None
+    has_height = proto is not None and "height_config" in proto.DESCRIPTOR.fields_by_name
+    if has_height and proto.HasField("height_config"):
+        height = proto.height_config.pixel_height
+    for child in getattr(node, "children", {}).values():
+        if type(child).__name__ == "Html" and "mm-fsection" in str(child.proto):
+            found.append(height or None)
+        found += heading_slots(child)
+    return found
+
+
+def test_headings_sit_in_slots_of_their_final_height(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Until its code loads, an st.html element is a 40 px placeholder; a heading without a
+    slot of its final height pushes the form down when it arrives (a 0.09 layout shift on a
+    phone for a new viewer)."""
+    as_viewer(monkeypatch, ALICE)
+    for view in ("Alerts", "Portfolio", "Fundamentals"):
+        at = alerts_tab(view=view)
+        assert not at.exception
+        slots = heading_slots(at.main)
+        assert slots, view
+        assert set(slots) == {alerts_view.SUBSECTION_HEIGHT}, (view, slots)
 
 
 def test_create_list_and_delete(monkeypatch: pytest.MonkeyPatch) -> None:
