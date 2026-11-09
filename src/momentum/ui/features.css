@@ -119,6 +119,10 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06) !important;
 }
 :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"][aria-checked="true"] p { color: var(--mm-ink); }
+@media (pointer: coarse) {
+  :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radiogroup"] { padding-block: 0; }
+  :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] { min-height: 44px; margin-block: -2px; }
+}
 @media (prefers-reduced-motion: reduce) {
   :is(.st-key-fund_frequency, .st-key-pf_kind) [role="radio"] { transition: none; }
 }

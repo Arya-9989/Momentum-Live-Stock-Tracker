@@ -50,9 +50,21 @@
 
 /* "Set an alert at ..." after a click on the price pane. */
 .mm-chart-pick {
-  position: absolute; top: 0; right: 72px; z-index: 4; min-height: 32px; padding: 6px 12px;
-  border: 1px solid currentColor; border-radius: 980px; background: transparent;
-  color: var(--st-primary-color, #0066cc); font: 500 13px/18px inherit; cursor: pointer;
+  position: absolute; top: 4px; right: 84px; z-index: 4; min-height: 44px; padding: 6px 12px;
+  max-width: calc(100% - 88px); box-sizing: border-box;
+  border: 1px solid currentColor; border-radius: 980px; background: var(--mm-surface, #fff);
+  color: var(--mm-focus, #0066cc); font: inherit; font-weight: 500; cursor: pointer;
 }
-.mm-chart-pick:focus-visible { outline: 2px solid var(--st-primary-color, #0066cc); outline-offset: 2px; }
+.mm-chart-controls {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 48px;
+  display: flex; align-items: center; gap: 4px; padding-inline: 4px;
+}
+.mm-chart-control {
+  min-width: 44px; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 980px;
+  background: transparent; color: var(--mm-focus, #0066cc); font: inherit; cursor: pointer;
+}
+:is(.mm-chart-control, .mm-chart-pick):hover:not(:disabled) { background: var(--mm-surface-2, #f5f5f7); }
+:is(.mm-chart-control, .mm-chart-pick):focus-visible { outline: 2px solid var(--mm-focus, #0066cc); outline-offset: 2px; }
+.mm-chart-control:disabled { opacity: 0.5; cursor: not-allowed; }
+.mm-chart-control[hidden] { display: none; }
 .mm-chart-pick[hidden] { display: none; }

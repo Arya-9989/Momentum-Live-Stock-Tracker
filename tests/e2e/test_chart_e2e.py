@@ -39,3 +39,20 @@ def test_chart_click_prefills_an_alert(e2e_url: str, browser: Any) -> None:
     condition = page.locator(".st-key-alert_condition input").input_value()
     assert condition == "Price crosses above"  # the top of the pane is above $512.00
     page.context.close()
+
+
+@pytest.mark.parametrize("view", ["Portfolio", "Fundamentals"])
+def test_feature_segments_have_touch_targets(e2e_url: str, browser: Any, view: str) -> None:
+    context = browser.new_context(
+        viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True
+    )
+    page = context.new_page()
+    open_app(page, f"{e2e_url}/?demo=1&view={view}")
+    buttons = page.get_by_role("radio")
+    assert buttons.count() >= 2
+    for button in buttons.all():
+        box = button.bounding_box()
+        assert box["height"] >= 44
+        assert box["width"] >= 44
+        assert button.evaluate("el => el.getBoundingClientRect().top >= 0")
+    context.close()
