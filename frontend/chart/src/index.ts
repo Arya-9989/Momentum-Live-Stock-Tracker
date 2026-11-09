@@ -40,6 +40,7 @@ import type { Format, Payload, SeriesSpec } from "./types";
 
 const FONT = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const REDUCED = "(prefers-reduced-motion: reduce)";
+const CONTROLS_HEIGHT = 48;
 
 interface Component {
   data: Payload;
@@ -61,6 +62,7 @@ interface State {
   curtain: HTMLElement;
   readout: HTMLElement;
   pick: HTMLButtonElement;
+  latest: HTMLButtonElement;
   labels: HTMLElement[];
   chart: IChartApi;
   entries: Entry[];
@@ -132,7 +134,7 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
     height: `${payload.height}px`,
   });
   const plot = el("div", "mm-chart-plot");
-  Object.assign(plot.style, { position: "absolute", inset: "0" });
+  Object.assign(plot.style, { position: "absolute", inset: `0 0 ${CONTROLS_HEIGHT}px` });
   plot.setAttribute("aria-hidden", "true"); // the figure's label and the price table carry it
   const curtain = el("div", "mm-chart-curtain");
   Object.assign(curtain.style, { position: "absolute", top: "0", left: "0", visibility: "hidden" });
@@ -147,14 +149,21 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   const pick = el("button", "mm-chart-pick");
   pick.type = "button";
   pick.hidden = true;
-  root.append(plot, curtain, readout, pick);
+  const controls = el("div", "mm-chart-controls");
+  controls.setAttribute("role", "group");
+  controls.setAttribute("aria-label", "Chart controls");
+  const latest = el("button", "mm-chart-control");
+  latest.type = "button";
+  latest.textContent = "Alert at latest close";
+  latest.hidden = !payload.pick;
+  root.append(plot, curtain, readout, pick, controls);
   host.appendChild(root);
 
   const chart = createChart(plot, {
     // Created at its final size: autoSize measures asynchronously, so the first
     // frame would be laid out at a default width and the price axis would jump.
     width: Math.max(root.clientWidth, 1),
-    height: payload.height,
+    height: payload.height - CONTROLS_HEIGHT,
     layout: {
       background: { type: ColorType.Solid, color: "transparent" },
       textColor: theme.secondary,
@@ -192,7 +201,7 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   let price: ISeriesApi<SeriesType, Time> | null = null;
   if (payload.candles) {
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: theme.up,
+      upColor: "transparent", // Hollow up candles also convey direction without colour.
       downColor: theme.down,
       borderUpColor: theme.up,
       borderDownColor: theme.down,
@@ -264,7 +273,7 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   });
 
   const state: State = {
-    root, plot, curtain, readout, pick, labels, chart, entries, price,
+    root, plot, curtain, readout, pick, latest, labels, chart, entries, price,
     reference: null, picked: null, pickedPrice: null,
     structure: structureOf(payload), key: "", payload,
     observer: new ResizeObserver(() => resize(state)), send,
@@ -286,11 +295,38 @@ function build(host: HTMLElement | ShadowRoot, payload: Payload, send: State["se
   chart.subscribeCrosshairMove((param) => showReadout(state, param));
   chart.subscribeClick((param) => onClick(state, param));
   chart.subscribeDblClick(() => chart.timeScale().fitContent());
+  for (const [label, text, factor] of [["Zoom in", "+", 0.8], ["Zoom out", "−", 1.25], ["Reset zoom", "Reset", 0]] as const) {
+    const button = el("button", "mm-chart-control");
+    button.type = "button";
+    button.textContent = text;
+    button.setAttribute("aria-label", label);
+    button.addEventListener("click", () => {
+      const scale = chart.timeScale();
+      const range = scale.getVisibleLogicalRange();
+      if (!factor) scale.fitContent();
+      else if (range) {
+        const middle = (range.from + range.to) / 2;
+        const half = (range.to - range.from) * factor / 2;
+        scale.setVisibleLogicalRange({ from: middle - half, to: middle + half });
+      }
+    });
+    controls.appendChild(button);
+  }
+  latest.addEventListener("click", () => {
+    const value = valueAt(state.entries[0], null, state.payload);
+    if (state.payload.pick && value !== null && Number.isFinite(value) && value > 0) {
+      state.send("alert", { price: Number(value.toFixed(state.entries[0].format.decimals)) });
+    }
+  });
+  controls.appendChild(latest);
   pick.addEventListener("click", () => {
     if (state.pickedPrice !== null) state.send("alert", { price: state.pickedPrice });
   });
   root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") clearPick(state);
+    if (event.key === "Escape" && !pick.hidden) {
+      clearPick(state);
+      latest.focus();
+    }
   });
   state.observer.observe(root);
   return state;
@@ -330,6 +366,9 @@ function update(state: State, payload: Payload): void {
     });
   }
   clearPick(state);
+  state.latest.hidden = !payload.pick;
+  const value = valueAt(state.entries[0], null, payload);
+  state.latest.disabled = value === null || !Number.isFinite(value) || value <= 0;
   state.chart.timeScale().fitContent();
   showReadout(state, null);
   if (payload.key !== state.key) {
@@ -341,7 +380,7 @@ function update(state: State, payload: Payload): void {
 
 function resize(state: State): void {
   const width = state.root.clientWidth;
-  if (width > 0) state.chart.resize(width, state.payload.height);
+  if (width > 0) state.chart.resize(width, state.payload.height - CONTROLS_HEIGHT);
   layout(state);
 }
 

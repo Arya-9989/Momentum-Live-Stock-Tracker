@@ -57,8 +57,11 @@ illustration and shows no market data.</sub>
   runs through the price, volume, RSI and MACD panels, and one readout lists every series at the
   hovered bar, value first. Weekends, exchange holidays and overnight gaps take no space on the
   axis, and times are shown in the exchange's local time. Wheel or pinch zooms the time axis, and a
-  double-click fits it again. Click the prices and the chart offers **"Set an alert at $X"**,
-  which opens the Alerts tab with that level filled in. The charts are
+  double-click fits it again. Zoom in, zoom out and Reset buttons offer the same controls by
+  keyboard. Rising candles are hollow and falling candles filled, so direction also reads
+  without colour. Click the prices and the chart offers **"Set an alert at $X"**,
+  which opens the Alerts tab with that level filled in; **Alert at latest close** offers a
+  keyboard-accessible starting level. The charts are
   [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) (Apache-2.0),
   built into a Streamlit component ([ADR 0005](docs/adr/0005-lightweight-charts.md)).
 - **Technical indicators:** SMA 20/50/200, EMA 12/26, Bollinger Bands (20, 2), RSI (14, Wilder)

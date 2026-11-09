@@ -207,3 +207,51 @@ def test_comparison_chart(browser: Any) -> None:
     assert "+12.40%" in readout
     assert "-3.10%" in readout
     assert shadow(page, ".mm-chart-pick").is_hidden()  # no alert offer on returns
+
+
+@pytest.mark.parametrize("style", ["Line", "Candles"])
+def test_chart_controls_work_without_a_pointer(browser: Any, style: charts.ChartStyle) -> None:
+    page = page_with(browser, reduced=True)
+    render(page, payload(style=style))
+    original = shadow(page, ".mm-chart-plot").screenshot()
+    zoom = page.get_by_role("button", name="Zoom in", exact=True)
+    zoom.focus()
+    page.keyboard.press("Enter")
+    before = shadow(page, ".mm-chart-plot").screenshot()
+    page.get_by_role("button", name="Reset zoom", exact=True).focus()
+    page.keyboard.press("Enter")
+    assert before != original
+    assert shadow(page, ".mm-chart-plot").screenshot() != before
+    page.get_by_role("button", name="Zoom out", exact=True).focus()
+    page.keyboard.press("Enter")
+    assert shadow(page, ".mm-chart-plot").screenshot() != original
+    latest = page.get_by_role("button", name="Alert at latest close", exact=True)
+    latest.focus()
+    page.keyboard.press("Enter")
+    ((event, value),) = page.evaluate("window.__triggers")
+    assert event == "alert"
+    assert value["price"] == round(float(frame()["Close"].iloc[-1]), 2)
+
+
+def test_chart_controls_fit_a_small_touch_screen(browser: Any) -> None:
+    page = page_with(browser, reduced=True)
+    page.set_viewport_size({"width": 375, "height": 700})
+    page.evaluate("document.querySelector('#chart').style.width = '343px'")
+    render(page, payload())
+    toolbar = shadow(page, ".mm-chart-controls")
+    assert toolbar.evaluate("el => el.scrollWidth <= el.clientWidth")
+    for button in toolbar.get_by_role("button").all():
+        box = button.bounding_box()
+        assert box["width"] >= 44
+        assert box["height"] >= 44
+        button.focus()
+        assert button.evaluate("el => getComputedStyle(el).outlineWidth") == "2px"
+
+
+def test_latest_alert_is_disabled_without_a_valid_price(browser: Any) -> None:
+    page = page_with(browser)
+    data = payload()
+    for series in data["series"]:
+        series["points"] = []
+    render(page, data)
+    assert page.get_by_role("button", name="Alert at latest close", exact=True).is_disabled()
